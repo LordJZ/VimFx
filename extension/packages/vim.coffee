@@ -40,10 +40,10 @@ class Vim
     if @mode == MODE_NORMAL || keyStr == 'Esc'
       @keys.push(keyStr)
       @lastKeyStr = keyStr
-      if command = commands.findCommand(@keys)
+      if command = commands.findCommand(@window.location.toString(), @keys)
         command.func(@)
         return command.name != 'Esc'
-      else if commands.maybeCommand(@keys)
+      else if commands.maybeCommand(@window.location.toString(), @keys)
         return true
       else
         @keys.length = 0

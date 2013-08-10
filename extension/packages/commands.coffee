@@ -304,6 +304,11 @@ class Command
       try @keyValues = JSON.parse(getPref(@prefName('keys')))
     else
       @keyValues = keys
+    if isPrefSet(@prefName('disables')) \
+       and @disables = JSON.parse(getPref(@prefName('disables')))
+      list[i] = new RegExp(regex) for regex, i in list when regex not instanceof RegExp for key, list of @disables
+    else
+      @disables = {}
 
   # Check if this command may match given string if more chars are added
   mayMatch: (value) ->
@@ -325,6 +330,11 @@ class Command
       return getPref(@prefName('enabled'), true)
     else
       setPref(@prefName('enabled'), !!value)
+
+  keyEnabled: (key, location) ->
+    return false unless @enabled()
+    return true unless regexes = @disables[key]
+    return !regexes.reduce(((m, v) -> m or v.test(location)), false)
 
   keys: (value) ->
     if value is undefined
@@ -409,20 +419,20 @@ hintCharHandler = (vim, keyStr) ->
           vim.enterNormalMode()
           break
 
-findCommand = (keys) ->
+findCommand = (location, keys) ->
   for i in [0...keys.length]
     str = keys[i..].join(',')
     for cmd in commands
       for key in cmd.keys()
-        if key == str and cmd.enabled()
+        if key == str and cmd.keyEnabled(key, location)
           return cmd
 
-maybeCommand = (keys) ->
+maybeCommand = (location, keys) ->
   for i in [0...keys.length]
     str = keys[i..].join(',')
     for cmd in commands
       for key in cmd.keys()
-        if key.indexOf(str) == 0 and cmd.enabled()
+        if key.indexOf(str) == 0 and cmd.keyEnabled(key, location)
           return true
 
 # Finds all stacks of markers that overlap each other (by using `getStackFor`) (#1), and rotates
