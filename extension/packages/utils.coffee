@@ -344,7 +344,6 @@ ACTION_ELEMENT_PROPERTIES = [
   "@accesskey"
   "@role='link'"
   "@role='button'"
-  "contains(@class, 'button')"
   "contains(@class, 'clickable')"
   "contains(@class, 'js-new-tweets-bar')"
 ]
