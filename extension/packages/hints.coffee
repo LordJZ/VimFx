@@ -32,11 +32,14 @@ MARKABLE_ELEMENT_PROPERTIES = [
   "@onmousedown"
   "@onmouseup"
   "@oncommand"
+  "@accesskey"
   "@role='link'"
   "@role='button'"
-  "contains(@class, 'button')"
+  "contains(@class, 'clickable')"
   "contains(@class, 'js-new-tweets-bar')"
   "@contenteditable='' or translate(@contenteditable, 'TRUE', 'true')='true'"
+  # Zooming in and out images bigger than viewport size
+  "img[contains(@class, 'decoded') and (contains(@class, 'overflowing') or contains(@class, 'shrinkToFit'))]"
 ]
 
 

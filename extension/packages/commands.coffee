@@ -297,6 +297,21 @@ command_Esc = (vim) ->
     if chromeWindow = utils.getRootWindow(vim.window)
       chromeWindow.DeveloperToolbar.hide()
 
+command_HideTabBar = (vim) ->
+  mainWindow = vim.window
+            .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+            .getInterface(Components.interfaces.nsIWebNavigation)
+            .QueryInterface(Components.interfaces.nsIDocShellTreeItem)
+            .rootTreeItem
+            .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+            .getInterface(Components.interfaces.nsIDOMWindow);
+  if svc = mainWindow.TreeStyleTabService
+    autoHide = svc.browser.treeStyleTab.autoHide
+    if autoHide.expanded
+      autoHide.hide()
+    else
+      autoHide.show()
+
 class Command
   constructor: (@group, @name, @func, keys) ->
     @defaultKeys = keys
@@ -304,6 +319,11 @@ class Command
       try @keyValues = JSON.parse(getPref(@prefName('keys')))
     else
       @keyValues = keys
+    if isPrefSet(@prefName('disables')) \
+       and @disables = JSON.parse(getPref(@prefName('disables')))
+      list[i] = new RegExp(regex) for regex, i in list when regex not instanceof RegExp for key, list of @disables
+    else
+      @disables = {}
 
   # Check if this command may match given string if more chars are added
   mayMatch: (value) ->
@@ -325,6 +345,11 @@ class Command
       return getPref(@prefName('enabled'), true)
     else
       setPref(@prefName('enabled'), !!value)
+
+  keyEnabled: (key, location) ->
+    return false unless @enabled()
+    return true unless regexes = @disables[key]
+    return !regexes.reduce(((m, v) -> m or v.test(location)), false)
 
   keys: (value) ->
     if value is undefined
@@ -376,6 +401,7 @@ commands = [
   new Command('browse', 'follow_in_tab',          command_follow_in_tab,          ['F'])
   new Command('browse', 'back',                   command_back,                   ['H'])
   new Command('browse', 'forward',                command_forward,                ['L'])
+  new Command('browse', 'HideTabBar',             command_HideTabBar,             ['q'])
 
   new Command('misc',   'find',                   command_find,                   ['/'])
   new Command('misc',   'find_hl',                command_find_hl,                ['a,/'])
@@ -409,20 +435,20 @@ hintCharHandler = (vim, keyStr) ->
           vim.enterNormalMode()
           break
 
-findCommand = (keys) ->
+findCommand = (location, keys) ->
   for i in [0...keys.length]
     str = keys[i..].join(',')
     for cmd in commands
       for key in cmd.keys()
-        if key == str and cmd.enabled()
+        if key == str and cmd.keyEnabled(key, location)
           return cmd
 
-maybeCommand = (keys) ->
+maybeCommand = (location, keys) ->
   for i in [0...keys.length]
     str = keys[i..].join(',')
     for cmd in commands
       for key in cmd.keys()
-        if key.indexOf(str) == 0 and cmd.enabled()
+        if key.indexOf(str) == 0 and cmd.keyEnabled(key, location)
           return true
 
 # Finds all stacks of markers that overlap each other (by using `getStackFor`) (#1), and rotates
