@@ -19,7 +19,7 @@ MARKABLE_ELEMENTS = [
   "textarea"
   "button"
   "select"
-  "input[not(@type='hidden' or @disabled or @readonly)]"
+  "input[not(@type='hidden' or @disabled)]"
   "embed"
   "object"
 ]
@@ -52,7 +52,7 @@ removeHints = (document) ->
     removeHints(frame.document)
 
 
-# Like `injectMarkers`, but also sets hints for the markers
+# Like `insertHints`, but also sets hints for the markers
 injectHints = (document) ->
   markers = createMarkers(document)
   hintChars = utils.getHintChars()
@@ -61,6 +61,10 @@ injectHints = (document) ->
 
   removeHints(document)
   insertHints(markers)
+
+  # Must be done after the hints have been inserted into the DOM (see marker.coffee)
+  for marker in markers
+    marker.completePosition()
 
   return markers
 
@@ -76,7 +80,7 @@ insertHints = (markers) ->
     doc = marker.element.ownerDocument
     if not getFrag(doc)
       docFrags.push([doc, doc.createDocumentFragment()])
-      
+
     frag = getFrag(doc)
     frag.appendChild(marker.markerElement)
 
