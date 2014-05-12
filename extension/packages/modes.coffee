@@ -16,7 +16,7 @@ modes['normal'] =
 
     # convert from { 'google.com': ['j', 'k'] }
     # to { 'j': { 'google.com': 1 } }
-    pref = JSON.parse(getPref('per-site-disables'))
+    pref = JSON.parse(getPref('per_site_disables'))
     for host of pref
       keys = pref[host]
       for i in [0...keys.length]
