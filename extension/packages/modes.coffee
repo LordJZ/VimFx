@@ -5,10 +5,24 @@ utils                   = require 'utils'
 , isEscCommandKey
 , isReturnCommandKey
 , findStorage }         = require 'commands'
+{ getPref } = require 'prefs'
 
 modes = {}
 
 modes['normal'] =
+
+  disables: do ->
+    map = {}
+
+    # convert from { 'google.com': ['j', 'k'] }
+    # to { 'j': { 'google.com': 1 } }
+    pref = JSON.parse(getPref('per_site_disables'))
+    for host of pref
+      keys = pref[host]
+      for i in [0...keys.length]
+        (map[keys[i]] ?= {})[host] = true
+    return map
+
   onEnter: (vim, storage) ->
     storage.keys ?= []
     storage.commands ?= {}
@@ -17,6 +31,11 @@ modes['normal'] =
     storage.keys.length = 0
 
   onInput: (vim, storage, keyStr, event) ->
+
+    if storage.keys.length is 0 \
+       and @disables[keyStr]?[vim.window.location.host]
+      return
+
     storage.keys.push(keyStr)
 
     { match, exact, command } = searchForMatchingCommand(storage.keys)

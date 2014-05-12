@@ -285,6 +285,21 @@ command_Esc = (vim, event) ->
   vim.rootWindow.gBrowser.getFindBar()?.close()
 
 
+command_HideTabBar = (vim) ->
+  mainWindow = vim.window
+            .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+            .getInterface(Components.interfaces.nsIWebNavigation)
+            .QueryInterface(Components.interfaces.nsIDocShellTreeItem)
+            .rootTreeItem
+            .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+            .getInterface(Components.interfaces.nsIDOMWindow);
+  if svc = mainWindow.TreeStyleTabService
+    autoHide = svc.browser.treeStyleTab.autoHide
+    if autoHide.expanded
+      autoHide.hide()
+    else
+      autoHide.show()
+
 class Command
   constructor: (@group, @name, @func, keys) ->
     @defaultKeys = keys
@@ -351,6 +366,7 @@ commands = [
   new Command('browse', 'go_to_root',             command_go_to_root,             ['g,U'])
   new Command('browse', 'back',                   command_back,                   ['H'])
   new Command('browse', 'forward',                command_forward,                ['L'])
+  new Command('browse', 'HideTabBar',             command_HideTabBar,             ['q'])
 
   new Command('misc',   'find',                   command_find,                   ['/'])
   new Command('misc',   'find_hl',                command_find_hl,                ['a,/'])
