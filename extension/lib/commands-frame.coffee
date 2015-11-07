@@ -102,6 +102,7 @@ commands.follow = ({ vim, storage }) ->
            element.hasAttribute('onmousedown') or
            element.hasAttribute('onmouseup') or
            element.hasAttribute('oncommand') or
+           element.hasAttribute('accesskey') or
            element.getAttribute('role') in ['link', 'button'] or
            # Twitter special-case.
            element.classList.contains('js-new-tweets-bar') or

@@ -78,6 +78,7 @@ shortcuts =
       'zf':        'follow_focus'
       '[':         'follow_previous'
       ']':         'follow_next'
+      'q':         'HideTabBar'
       'gi':        'focus_text_input'
       '<force><late><tab>':   'focus_next'
       '<force><late><s-tab>': 'focus_previous'

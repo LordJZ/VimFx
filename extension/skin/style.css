@@ -77,7 +77,7 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
 /* Marker styles should be kept simple for performance. */
 #VimFxMarkersContainer .marker {
   position: absolute;
-  padding: 0.2em;
+  padding: 0.02em;
   border: solid 1px #ad810c;
   background-color: #ffd76e;
   color: #302505;
