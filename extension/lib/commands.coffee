@@ -449,6 +449,20 @@ commands.esc = ({ vim }) ->
   vim.window.TabView.hide()
   hints.removeHints(vim.window) # Better safe than sorry.
 
+commands.HideTabBar = ({ vim }) ->
+  mainWindow = vim.window
+            .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+            .getInterface(Components.interfaces.nsIWebNavigation)
+            .QueryInterface(Components.interfaces.nsIDocShellTreeItem)
+            .rootTreeItem
+            .QueryInterface(Components.interfaces.nsIInterfaceRequestor)
+            .getInterface(Components.interfaces.nsIDOMWindow);
+  if svc = mainWindow.TreeStyleTabService
+    autoHide = svc.browser.treeStyleTab.autoHide
+    if autoHide.expanded
+      autoHide.hide()
+    else
+      autoHide.show()
 
 
 module.exports = {
