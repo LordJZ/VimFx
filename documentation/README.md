@@ -11,16 +11,23 @@ License"](GNU%20Free%20Documentation%20License).
 
 ## Contents
 
+- [Questions & Answers](questions-and-answers.md) **– New to VimFx? Look here!**
 - [Options](options.md)
 - [Commands](commands.md)
 - [Shortcuts](shortcuts.md)
 - [Button](button.md)
-- [Styling](styling.md)
+- [Notifications](notifications.md)
 - [Handy standard Firefox features](handy-standard-firefox-features.md)
-- [Questions & Answers](questions-and-answers.md)
-- [Configuration file](config-file.md)
-- [Public API](api.md)
-- [Contributing code](CONTRIBUTING-CODE.md)
-- [Tools](tools.md)
 
 Also check out the [wiki](https://github.com/akhodakivskiy/VimFx/wiki)!
+
+### For advanced users
+
+- [Styling](styling.md)
+- [Configuration file](config-file.md)
+- [Public API](api.md)
+
+### For contributors
+
+- [Contributing code](CONTRIBUTING-CODE.md)
+- [Tools](tools.md)

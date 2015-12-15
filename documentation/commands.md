@@ -41,14 +41,31 @@ Specifying a count make them scroll _count_ times as far.
 Selects the tab _count_ tabs backward/forward.
 
 If the count is greater than one they don’t wrap around when reaching the ends
-of the tab bar.
+of the tab bar, unless:
+
+- the first tab is selected and `J` is used.
+- the last tab is selected and `K` is used.
+
+They only wrap around _once._
 
 ### `gJ`, `gK`
 
 Moves the current tab _count_ tabs forward/backward.
 
-If the count is greater than one they don’t wrap around when reaching the ends
-of the tab bar.
+As opposed to `J` and `K`, pinned and non-pinned tabs are handled separately.
+The first non-pinned tab wraps to the last tab, and the last tab wraps to the
+first non-pinned tab, and vice versa for non-pinned tabs. Use `gp` to move a tab
+between the pinned and non-pinned parts of the tab bar.
+
+Other than the above, the count and wrap semantics work like `J` and `K`.
+
+### `g0`, `g^`, `g$`
+
+`g0` selects the tab at index _count,_ counting from the start.
+
+`g^` selects the tab at index _count,_ counting from the first non-pinned tab.
+
+`g$` selects the tab at index _count,_ counting from the end.
 
 ### `x`
 
@@ -76,13 +93,53 @@ Explained in its own section below.
 
 Firefox lets you scroll with the arrow keys, page down, page up, home, end and
 space by default. VimFx provides similar scrolling commands (and actually
-overrides space), but they work a little bit differently.
+overrides `<space>`), but they work a little bit differently.
 
 They scroll _the currently focused element._ If the currently focused element
-isn’t scrollable, or there is no (apparent) currently focused element, the
-entire page is scrolled.
+isn’t scrollable, the largest scrollable element on the page (if any, and
+including the entire page itself) is scrolled.
 
-You can focus scrollable elements using the `zf` command.
+You can focus scrollable elements using the `zf` command (or the `f` command).
+Scrollable browser elements, such as in the dev tools, can be focused using the
+`zF` command. The right border of hint markers for scrollable elements is styled
+to remind of a scroll bar, making them easier to recognize among hints for
+links.
+
+Note that `zf` and `f` do _not_ add a hint marker for the _largest_ scrollable
+element (such as the entire page). There’s no need to focus that element, since
+it is scrolled by default if no other scrollable element is focused, as
+explained above. (This prevents the largest scrollable element from likely
+eating your best hint char on most pages; see [The `f` commands]).
+
+[The `f` commands]: #the-f-commands-1
+
+### Marks: `m` and `` ` ``
+
+Other than traditional scrolling, VimFx has _marks._ Press `m` followed by a
+letter to associate the current scroll position with that letter. For example,
+press `ma` to save the position into mark _a._ Then you can return to that
+position by pressing `` ` `` followed by the same letter, e.g. `` `a ``.
+
+One mark is special: `` ` ``. Pressing ``` `` ``` takes you to the scroll
+position before the last `gg`, `G`, `0`, `$`, `/`, `n`, `N` or `` ` ``. (You can
+change this mark using the [`scroll.last_position_mark`] pref.)
+
+[`scroll.last_position_mark`]: options.md#scroll.last_position_mark
+
+#### Minor notes
+
+Unlike Vim, you may press _any_ key after `m`, and the scroll position will be
+associated with that key (Vim allows only a–z, roughly).
+
+Unlike Vim and Vimium, VimFx has no global marks. The reason is that they would
+be a lot more complicated to implement and do not seem useful enough to warrant
+that effort.
+
+As mentioned above, `m` stores the _current scroll position._ Specifically, that
+means the scroll position of the element that would be scrolled if the active
+element isn't scrollable; see [Scrolling commands] above.
+
+[Scrolling commands]: #scrolling-commands-1
 
 
 ## `gi`
@@ -96,18 +153,13 @@ autofocus prevention, and type `gi` when you wish you hadn’t.
 that `gi` and `1gi` are different: The latter _always_ focuses the first input
 of the page, regradless of which input you used last.
 
+After having focused a text input using `gi`, `<tab>` and `<s-tab>` will _only
+cycle between text inputs,_ instead of moving the focus between _all_ focusable
+elements as they usually do. (See also the [`focus_previous_key` and
+`focus_next_key`] advanced options.)
+
 [prevented autofocus]: options.md#prevent-autofocus
-
-
-## Focus next/previous element
-
-The default shorcuts are `<tab>` and `<s-tab>`, respectively (to be precise,
-they also include [special keys]). They work just like `<tab>` works normally,
-except that if you focused a text input using the `gi` command they will only
-switch between text inputs on thee page, as opposed to between all focusable
-elements (such as links, buttons and checkboxes) as they do otherwise.
-
-[special keys]: shortcuts.md#special-keys
+[`focus_previous_key` and `focus_next_key`]: options.md#focus_previous_key-and-focus_next_key
 
 
 ## The `f` commands
@@ -116,18 +168,24 @@ When invoking one of the `f` commands you enter Hints mode. In Hints mode,
 markers with hints are shown for some elements. By typing the letters of a hint
 something is done to that element, depending on the command.
 
+Another way to find links on the page is to use `g/`. It’s like the regular find
+command (`/`), except that it searches links only.
+
 Which elements get hints depends on the command as well:
 
 - `f` and `af`: Anything clickable—links, buttons, form controls.
-- `F` and `gf`: Anything that can be opened in a new tabs—links.
+- `F`, `gf` and `gF`: Anything that can be opened in a new tab or window—links.
 - `yf`: Anything that has something useful to copy—links (their URL) and text
   inputs (their text).
 - `zf`: Anything focusable—links, buttons, form controls, scrollable elements,
   frames.
+- `zF`: Browser elements, such as toolbar buttons.
 
 It might seem simpler to match the same set of elements for _all_ of the
 commands. The reason that is not the case is because the fewer elements the
 shorter the hints. (Also, what should happen if you tried to `F` a button?)
+
+(You can also customize [which elements do and don’t get hints][hint-matcher].)
 
 Another way to make hints shorter is to assign the same hint to all links with
 the same URL. So don’t get surprised if you see the same hint repeated several
@@ -174,7 +232,7 @@ command is implemented by running the same function as for the `f` command,
 passing `Infinity` as the `count` argument!) Therefore the `af` command does not
 accept a count itself.
 
-The `zf` and `yf` commands do not accept counts.
+The `gF`, `zf`, `yf` and `zF` commands do not accept counts.
 
 Press `<enter>` to increase the count by one. This is useful when you’ve already
 entered Hints mode but realize that you want to interact with yet a marker. This
@@ -192,8 +250,14 @@ tab instead, as if you’d used the `f` command. Holding alt toggles whether to
 open tabs in the background or foreground—it makes `F` work like `gf`, and `gf`
 like `F`.
 
+(Also see the advanced prefs [hints\_toggle\_in\_tab] and
+[hints\_toggle\_in\_background].)
+
+[hint-matcher]: api.md#vimfxhintmatcher
 [hint chars]: options.md#hint-chars
 [Styling]: styling.md
+[hints\_toggle\_in\_tab]: options.md#hints_toggle_in_tab
+[hints\_toggle\_in\_background]: options.md#hints_toggle_in_background
 
 
 ## Ignore mode `<s-f1>`

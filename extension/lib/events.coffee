@@ -22,8 +22,9 @@
 # launch commands and to provide state to them. Events in web page content are
 # listened for in events-frame.coffee.
 
-button = require('./button')
-utils  = require('./utils')
+button         = require('./button')
+messageManager = require('./message-manager')
+utils          = require('./utils')
 
 HELD_MODIFIERS_ATTRIBUTE = 'vimfx-held-modifiers'
 
@@ -43,9 +44,7 @@ class UIEventManager
     # keyboard input, allowing accesskeys to be used.
     @popupPassthrough = false
 
-    @locationState =
-      lastUrl:   null
-      numToSkip: 0
+    @enteredKeys = new EnteredKeysManager(@window)
 
   addListeners: ->
     checkPassthrough = (value, event) =>
@@ -57,51 +56,48 @@ class UIEventManager
     @listen('popuphidden', checkPassthrough.bind(null, false))
 
     @listen('keydown', (event) =>
-      try
-        # No matter what, always reset the `@suppress` flag, so we don't
-        # suppress more than intended.
-        @suppress = false
+      # No matter what, always reset the `@suppress` flag, so we don't
+      # suppress more than intended.
+      @suppress = false
 
-        # Reset the `@late` flag, telling any late listeners for the previous
-        # event not to run.
-        @late = false
+      # Reset the `@late` flag, telling any late listeners for the previous
+      # event not to run.
+      @late = false
 
-        if @popupPassthrough
-          # The `@popupPassthrough` flag is set a bit unreliably. Sometimes it
-          # can be stuck as `true` even though no popup is shown, effectively
-          # disabling the extension. Therefore we check if there actually _are_
-          # any open popups before stopping processing keyboard input. This is
-          # only done when popups (might) be open (not on every keystroke) of
-          # performance reasons.
-          #
-          # The autocomplete popup in text inputs (for example) is technically a
-          # panel, but it does not respond to key presses. Therefore
-          # `[ignorekeys="true"]` is excluded.
-          #
-          # coffeelint: disable=max_line_length
-          # <https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/PopupGuide/PopupKeys#Ignoring_Keys>
-          # coffeelint: enable=max_line_length
-          popups = @window.document.querySelectorAll(
-            ':-moz-any(menupopup, panel):not([ignorekeys="true"])'
-          )
-          for popup in popups
-            return if popup.state == 'open'
-          @popupPassthrough = false # No popup was actually open.
+      if @popupPassthrough
+        # The `@popupPassthrough` flag is set a bit unreliably. Sometimes it
+        # can be stuck as `true` even though no popup is shown, effectively
+        # disabling the extension. Therefore we check if there actually _are_
+        # any open popups before stopping processing keyboard input. This is
+        # only done when popups (might) be open (not on every keystroke) of
+        # performance reasons.
+        #
+        # The autocomplete popup in text inputs (for example) is technically a
+        # panel, but it does not respond to key presses. Therefore
+        # `[ignorekeys="true"]` is excluded.
+        #
+        # coffeelint: disable=max_line_length
+        # <https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/PopupGuide/PopupKeys#Ignoring_Keys>
+        # coffeelint: enable=max_line_length
+        popups = @window.document.querySelectorAll(
+          ':-moz-any(menupopup, panel):not([ignorekeys="true"])'
+        )
+        for popup in popups
+          return if popup.state == 'open'
+        @popupPassthrough = false # No popup was actually open.
 
-        return unless vim = @vimfx.getCurrentVim(@window)
+      return unless vim = @vimfx.getCurrentVim(@window)
 
-        if vim.isUIEvent(event)
-          @consumeKeyEvent(vim, event, utils.getFocusType(event), event)
-          # This also suppresses the 'keypress' event.
-          utils.suppressEvent(event) if @suppress
-        else
-          vim._listenOnce('consumeKeyEvent', ({ focusType }) =>
-            @consumeKeyEvent(vim, event, focusType)
-            return @suppress
-          )
-
-      catch error
-        console.error(utils.formatError(error))
+      if vim.isUIEvent(event)
+        focusType = utils.getFocusType(event.originalTarget)
+        @consumeKeyEvent(vim, event, focusType, event)
+        # This also suppresses the 'keypress' event.
+        utils.suppressEvent(event) if @suppress
+      else
+        vim._listenOnce('consumeKeyEvent', ({focusType}) =>
+          @consumeKeyEvent(vim, event, focusType)
+          return @suppress
+        )
     )
 
     @listen('keyup', (event) =>
@@ -109,15 +105,20 @@ class UIEventManager
       @setHeldModifiers(event, {filterCurrentOnly: true})
     )
 
-    checkFindbar = (mode, event) =>
+    handleFocusRelatedEvent = (options, event) =>
       target = event.originalTarget
+      return unless vim = @vimfx.getCurrentVim(@window)
+
       findBar = @window.gBrowser.getFindBar()
       if target == findBar._findField.mInputField
-        return unless vim = @vimfx.getCurrentVim(@window)
-        vim.enterMode(mode)
+        vim.enterMode(options.mode)
 
-    @listen('focus', checkFindbar.bind(null, 'find'))
-    @listen('blur',  checkFindbar.bind(null, 'normal'))
+      if vim.isUIEvent(event)
+        focusType = utils.getFocusType(utils.getActiveElement(@window))
+        @vimfx.emit('focusTypeChange', {vim, focusType})
+
+    @listen('focus', handleFocusRelatedEvent.bind(null, {mode: 'find'}))
+    @listen('blur',  handleFocusRelatedEvent.bind(null, {mode: 'normal'}))
 
     @listen('click', (event) =>
       target = event.originalTarget
@@ -136,78 +137,77 @@ class UIEventManager
         vim.enterMode('normal')
     )
 
-    @listen('TabSelect', @vimfx.emit.bind(@vimfx, 'TabSelect'))
-
-    @listen('TabOpen', (event) =>
-      browser = @window.gBrowser.getBrowserForTab(event.originalTarget)
-      focusedWindow = utils.getCurrentWindow()
-
-      # If a tab is opened in another window than the focused window, it might
-      # mean that a tab has been dragged to it from the focused window. Unless
-      # that’s the case, do nothing.
-      return if @window == focusedWindow
-
-      if MULTI_PROCESS_ENABLED
-        # In multi-process, tabs dragged to new windows re-use the frame script.
-        # This means that no new `vim` instance is created (which is good since
-        # state is kept). A new `<browser>` is created, though. So if we’re
-        # already tracking this `<browser>` there’s nothing to do.
-        return if @vimfx.vims.has(browser)
-
-        # Grab the current `vim` (which corresponds to the dragged tab) from the
-        # focused window and update its `.browser`.
-        vim = @vimfx.getCurrentVim(focusedWindow)
-        vim._setBrowser(browser)
-        @vimfx.vims.set(browser, vim)
-
-        # For some reason, three 'onLocationChange' events will fire for this
-        # tab now, all of which are unwanted because the location didn’t really
-        # change. Otherwise another mode might be entered based on the “changed”
-        # URL. The mode should not change when dragging a tab to another window.
-        @locationState.numToSkip = 3
-
-      else
-        # In non-multi-process, a new frame script _is_ created, which means
-        # that a new `vim` instance is created as well, and also that all state
-        # for the page is lost. The best we can do is to copy over the mode.
-        vim = @vimfx.vims.get(browser)
-        oldVim = @vimfx.getCurrentVim(focusedWindow)
-        vim._state.lastUrl = oldVim._state.lastUrl
-        vim.enterMode(oldVim.mode)
-
-        # In non-multi-process, the magic number seems to be four.
-        @locationState.numToSkip = 4
+    @listen('overflow', (event) =>
+      target = event.originalTarget
+      return unless vim = @vimfx.getCurrentVim(@window)
+      vim._state.scrollableElements.addChecked(target)
     )
 
-    progressListener =
-      onLocationChange: (progress, request, location, flags) =>
-        if @locationState.numToSkip > 0
-          @locationState.numToSkip--
+    @listen('underflow', (event) =>
+      target = event.originalTarget
+      return unless vim = @vimfx.getCurrentVim(@window)
+      vim._state.scrollableElements.deleteChecked(target)
+    )
+
+    @listen('TabSelect', (event) =>
+      @vimfx.emit('TabSelect', event)
+
+      return unless vim = @vimfx.getCurrentVim(@window)
+      vim.hideNotification()
+    )
+
+    @listen('TabClose', (event) =>
+      browser = @window.gBrowser.getBrowserForTab(event.originalTarget)
+      return unless vim = @vimfx.vims.get(browser)
+      # Note: `lastClosedVim` must be stored so that any window can access it.
+      @vimfx.lastClosedVim = vim
+    )
+
+    messageManager.listen('cachedPageshow', ((data, args) =>
+      {target: browser, callback} = args
+      exit = (movedToNewTab) ->
+        messageManager.send(callback, movedToNewTab) if callback
+
+      [oldVim, @vimfx.lastClosedVim] = [@vimfx.lastClosedVim, null]
+      unless oldVim
+        exit(false)
+        return
+
+      if @vimfx.vims.has(browser)
+        vim = @vimfx.vims.get(browser)
+        if vim._messageManager == vim.browser.messageManager
+          exit(false)
           return
 
-        url = location.spec
-        refresh = (url == @locationState.lastUrl)
-        @locationState.lastUrl = url
-
-        unless flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT
-          return unless vim = @vimfx.getCurrentVim(@window)
-          vim._onLocationChange(url, {refresh})
-
-    @window.gBrowser.addProgressListener(progressListener)
-    module.onShutdown(=>
-      @window.gBrowser.removeProgressListener(progressListener)
-    )
+      # If we get here, it means that we’ve detected a tab dragged from one
+      # window to another. If so, the `vim` object from the last closed tab (the
+      # moved tab) should be re-used. See the commit message for commit bb70257d
+      # for more details.
+      oldVim._setBrowser(browser)
+      @vimfx.vims.set(browser, oldVim)
+      @vimfx.emit('modeChange', oldVim)
+      exit(true)
+    ), @window.messageManager)
 
   consumeKeyEvent: (vim, event, focusType, uiEvent = false) ->
     match = vim._consumeKeyEvent(event, focusType)
-    switch
-      when not match
-        @suppress = null
-      when match.specialKeys['<late>']
+
+    if match
+      if @vimfx.options.notify_entered_keys
+        if match.type in ['none', 'full'] or match.focus != null
+          @enteredKeys.clear(vim)
+        else
+          @enteredKeys.push(vim, match.keyStr, @vimfx.options.timeout)
+      else
+        vim.hideNotification()
+
+      if match.specialKeys['<late>']
         @suppress = false
         @consumeLateKeydown(vim, event, match, uiEvent)
       else
         @suppress = vim._onInput(match, uiEvent)
+    else
+      @suppress = null
     @setHeldModifiers(event)
 
   consumeLateKeydown: (vim, event, match, uiEvent) ->
@@ -216,7 +216,7 @@ class UIEventManager
     # The passed in `event` is the regular non-late browser UI keydown event.
     # It is only used to set held keys. This is easier than sending an event
     # subset from frame scripts.
-    listener = ({ defaultPrevented }) =>
+    listener = ({defaultPrevented}) =>
       # `@late` is reset on every keydown. If it is no longer `true`, it means
       # that the page called `event.stopPropagation()`, which prevented this
       # listener from running for that event.
@@ -239,15 +239,35 @@ class UIEventManager
     else
       vim._listenOnce('lateKeydown', listener)
 
-  setHeldModifiers: (event, { filterCurrentOnly = false } = {}) ->
+  setHeldModifiers: (event, {filterCurrentOnly = false} = {}) ->
     mainWindow = @window.document.documentElement
     modifiers =
       if filterCurrentOnly
         mainWindow.getAttribute(HELD_MODIFIERS_ATTRIBUTE)
       else
         if @suppress == null then 'alt ctrl meta shift' else ''
-    isHeld = (modifier) -> event["#{ modifier }Key"]
+    isHeld = (modifier) -> event["#{modifier}Key"]
     mainWindow.setAttribute(HELD_MODIFIERS_ATTRIBUTE,
                             modifiers.split(' ').filter(isHeld).join(' '))
+
+class EnteredKeysManager
+  constructor: (@window) ->
+    @keys = []
+    @timeout = null
+
+  clear: (notifier) ->
+    @keys = []
+    @clearTimeout()
+    notifier.hideNotification()
+
+  push: (notifier, keyStr, duration) ->
+    @keys.push(keyStr)
+    @clearTimeout()
+    notifier.notify(@keys.join(''))
+    @timeout = @window.setTimeout(@clear.bind(this, notifier), duration)
+
+  clearTimeout: ->
+    @window.clearTimeout(@timeout) if @timeout?
+    @timeout = null
 
 module.exports = UIEventManager

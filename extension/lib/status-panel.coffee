@@ -1,5 +1,5 @@
 ###
-# Copyright Simon Lydell 2014.
+# Copyright Simon Lydell 2015.
 #
 # This file is part of VimFx.
 #
@@ -17,12 +17,27 @@
 # along with VimFx.  If not, see <http://www.gnu.org/licenses/>.
 ###
 
-utils = require('../lib/utils')
+# This file creates VimFx’s status panel, similar to the “URL popup” shown when
+# hovering or focusing links.
 
-{classes: Cc, interfaces: Ci} = Components
+utils = require('./utils')
 
-exports['test removeDuplicates'] = (assert) ->
-  assert.deepEqual(utils.removeDuplicates([1, 1, 2, 1, 3, 2]),
-                                          [1, 2, 3])
-  assert.deepEqual(utils.removeDuplicates(['a', 'b', 'c', 'b', 'd', 'a']),
-                                          ['a', 'b', 'c', 'd'])
+injectStatusPanel = (browser) ->
+  window = browser.ownerGlobal
+
+  statusPanel = window.document.createElement('statuspanel')
+  utils.setAttributes(statusPanel, {
+    inactive: 'true'
+    layer:    'true'
+    mirror:   'true'
+  })
+  statusPanel.style.pointerEvents = 'auto'
+
+  window.gBrowser.getBrowserContainer(browser).appendChild(statusPanel)
+  module.onShutdown(-> statusPanel.remove())
+
+  return statusPanel
+
+module.exports = {
+  injectStatusPanel
+}

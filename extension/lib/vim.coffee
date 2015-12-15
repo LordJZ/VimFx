@@ -24,14 +24,16 @@
 # `vim` objects are exposed by the Public API. Underscored names are private and
 # should not be used by API consumers.
 
-messageManager = require('./message-manager')
-utils          = require('./utils')
+messageManager     = require('./message-manager')
+ScrollableElements = require('./scrollable-elements')
+statusPanel        = require('./status-panel')
+utils              = require('./utils')
 
 ChromeWindow = Ci.nsIDOMChromeWindow
 
 class Vim
   constructor: (browser, @_parent) ->
-    @_setBrowser(browser)
+    @_setBrowser(browser, {addListeners: false})
     @_storage = {}
 
     @_resetState()
@@ -48,45 +50,67 @@ class Vim
       @_onLocationChange(@browser.currentURI.spec)
     )
 
+    @_addListeners()
+
+  _addListeners: ->
     # Require the subset of the options needed to be listed explicitly (as
     # opposed to sending _all_ options) for performance. Each option access
     # might trigger an optionOverride.
-    @_listen('options', ({ prefs }) =>
+    @_listen('options', ({prefs}) =>
       options = {}
       for pref in prefs
         options[pref] = @options[pref]
       return options
     )
 
-    @_listen('vimMethod', ({ method, args = [] }, { callback = null }) =>
+    @_listen('vimMethod', ({method, args = []}, {callback = null}) =>
       result = @[method](args...)
       @_send(callback, result) if callback
     )
 
-    @_listen('vimMethodSync', ({ method, args = [] }) =>
+    @_listen('vimMethodSync', ({method, args = []}) =>
       return @[method](args...)
     )
 
     @_listen('DOMWindowCreated', => @_state.frameCanReceiveEvents = true)
 
-  _setBrowser: (@browser) ->
+    @_listen('locationChange', @_onLocationChange.bind(this))
+
+    @_listen('focusType', (focusType) =>
+      # If the focus moves from a web page element to a browser UI element, the
+      # focus and blur events happen in the expected order, but the message from
+      # the frame script arrives too late. Therefore, check that the currently
+      # active element isn’t a browser UI element first.
+      unless @_isUIElement(utils.getActiveElement(@window))
+        @_parent.emit('focusTypeChange', {vim: this, focusType})
+    )
+
+  _setBrowser: (@browser, {addListeners = true} = {}) ->
     @window = @browser.ownerGlobal
     @_messageManager = @browser.messageManager
+
+    @_statusPanel?.remove()
+    @_statusPanel = statusPanel.injectStatusPanel(@browser)
+    @_statusPanel.onclick = @hideNotification.bind(this)
+
+    @_addListeners() if addListeners
 
   _resetState: ->
     @_state =
       frameCanReceiveEvents: false
-      lastUrl:               null
+      scrollableElements:    new ScrollableElements(@window)
 
   _isBlacklisted: (url) -> @options.black_list.some((regex) -> regex.test(url))
 
   isUIEvent: (event) ->
-    target = event.originalTarget
-    return @_state.frameCanReceiveEvents and
-      if MULTI_PROCESS_ENABLED
-        (target != @window.gBrowser.selectedBrowser)
-      else
-        (target.ownerGlobal instanceof ChromeWindow)
+    return not @_state.frameCanReceiveEvents or
+           @_isUIElement(event.originalTarget)
+
+  _isUIElement: (element) ->
+    # TODO: The `element.ownerGlobal` check will be redundant when
+    # non-multi-process is removed from Firefox.
+    return element.ownerGlobal instanceof ChromeWindow and
+           element != @window.gBrowser.selectedBrowser
 
   # `args...` is passed to the mode's `onEnter` method.
   enterMode: (mode, args...) ->
@@ -94,8 +118,8 @@ class Vim
 
     unless utils.has(@_parent.modes, mode)
       modes = Object.keys(@_parent.modes).join(', ')
-      throw new Error("VimFx: Unknown mode. Available modes are: #{ modes }.
-                       Got: #{ mode }")
+      throw new Error("VimFx: Unknown mode. Available modes are: #{modes}.
+                       Got: #{mode}")
 
     @_call('onLeave') if @mode?
     @mode = mode
@@ -111,12 +135,9 @@ class Vim
     suppress = @_call('onInput', {uiEvent, count: match.count}, match)
     return suppress
 
-  _onLocationChange: (url, { refresh = false } = {}) ->
-    return if url == @_state.lastUrl and not refresh
-    @_state.lastUrl = url
+  _onLocationChange: (url) ->
     @enterMode(if @_isBlacklisted(url) then 'ignore' else 'normal')
     @_parent.emit('locationChange', {vim: this, location: new @window.URL(url)})
-    @_send('locationChange')
 
   _call: (method, data = {}, extraArgs...) ->
     args = Object.assign({vim: this, storage: @_storage[@mode] ?= {}}, data)
@@ -135,11 +156,15 @@ class Vim
   _send: (name, data, callback = null) ->
     messageManager.send(name, data, @_messageManager, callback)
 
-  notify: (title, options = {}) ->
-    new @window.Notification(title, Object.assign({
-      icon: 'chrome://vimfx/skin/icon128.png'
-      tag: 'VimFx-notification'
-    }, options))
+  notify: (message) ->
+    @_parent.emit('notification', {vim: this, message})
+    if @_parent.options.notifications_enabled
+      @_statusPanel.setAttribute('label', message)
+      @_statusPanel.removeAttribute('inactive')
+
+  hideNotification: ->
+    @_parent.emit('hideNotification', {vim: this})
+    @_statusPanel.setAttribute('inactive', 'true')
 
   markPageInteraction: ->
     @_send('markPageInteraction')

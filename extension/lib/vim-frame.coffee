@@ -24,8 +24,9 @@
 # each tab. It mostly tries to mimic the `Vim` class in vim.coffee, but also
 # keeps track of web page state. `VimFrame` is not part of the public API.
 
-messageManager = require('./message-manager')
-utils          = require('./utils')
+messageManager     = require('./message-manager')
+ScrollableElements = require('./scrollable-elements')
+utils              = require('./utils')
 
 class VimFrame
   constructor: (@content) ->
@@ -33,19 +34,39 @@ class VimFrame
 
     @resetState()
 
-    messageManager.listen('modeChange', ({ mode }) =>
+    messageManager.listen('modeChange', ({mode}) =>
       @mode = mode
     )
 
     messageManager.listen('markPageInteraction',
                           @markPageInteraction.bind(this))
 
-  resetState: ->
-    @state =
-      hasInteraction:       false
-      scrollableElements:   new WeakSet()
-      lastFocusedTextInput: null
-      shouldRefocus:        false
+  # If the target is the topmost document, reset everything. Otherwise filter
+  # out elements belonging to the target frame. On some sites, such as Gmail,
+  # some elements might be dead at this point.
+  resetState: (target = @content.document) ->
+    if target == @content.document
+      @state =
+        hasInteraction:       false
+        shouldRefocus:        false
+        marks:                {}
+        explicitBodyFocus:    false
+        hasFocusedTextInput:  false
+        lastFocusedTextInput: null
+        scrollableElements:   new ScrollableElements(@content)
+        markerElements:       []
+        inputs:               null
+
+    else
+      isDead = (element) ->
+        return Cu.isDeadWrapper(element) or element.ownerDocument == target
+      check = (prop) =>
+        @state[prop] = null if @state[prop] and isDead(@state[prop])
+
+      check('lastFocusedTextInput')
+      @state.scrollableElements.reject(isDead)
+      # `markerElements` and `inputs` could theoretically need to be filtered
+      # too at this point. YAGNI until an issue arises from it.
 
   options: (prefs) -> messageManager.get('options', {prefs})
 
@@ -56,7 +77,7 @@ class VimFrame
     })
 
   onInput: (event) ->
-    focusType = utils.getFocusType(event)
+    focusType = utils.getFocusType(event.originalTarget)
     suppress = messageManager.get('consumeKeyEvent', {focusType})
     return suppress
 

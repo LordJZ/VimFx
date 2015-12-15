@@ -24,41 +24,49 @@
 /***** Button *****/
 
 #VimFxButton {
-    list-style-image: url(icon16.png);
+  list-style-image: url(icon16.png);
 }
 
 #main-window[vimfx-mode="ignore"] #VimFxButton {
-    list-style-image: url(icon16-red.png);
+  list-style-image: url(icon16-red.png);
 }
 
 #VimFxButton[cui-areatype="menu-panel"],
 toolbarpaletteitem[place="palette"] > #VimFxButton {
-    list-style-image: url(icon32.png);
+  list-style-image: url(icon32.png);
 }
 
 #main-window[vimfx-mode="ignore"] #VimFxButton[cui-areatype="menu-panel"],
 #main-window[vimfx-mode="ignore"] toolbarpaletteitem[place="palette"] > #VimFxButton {
-    list-style-image: url(icon32-red.png);
+  list-style-image: url(icon32-red.png);
 }
 
 @media (min-resolution: 2dppx) {
+  #VimFxButton image {
+    width: 32px;
+  }
+
   #VimFxButton {
-      list-style-image: url(icon32.png);
+    list-style-image: url(icon32.png);
   }
 
   #main-window[vimfx-mode="ignore"] #VimFxButton {
-      list-style-image: url(icon32-red.png);
+    list-style-image: url(icon32-red.png);
   }
 
   #VimFxButton[cui-areatype="menu-panel"],
   toolbarpaletteitem[place="palette"] > #VimFxButton {
-      list-style-image: url(icon64.png);
+    list-style-image: url(icon64.png);
   }
 
   #main-window[vimfx-mode="ignore"] #VimFxButton[cui-areatype="menu-panel"],
   #main-window[vimfx-mode="ignore"] toolbarpaletteitem[place="palette"] > #VimFxButton {
-      list-style-image: url(icon64-red.png);
+    list-style-image: url(icon64-red.png);
   }
+}
+
+#main-window[vimfx-mode="normal"][vimfx-focus-type="editable"] #VimFxButton image {
+  filter: grayscale(100%) brightness(150%);
 }
 
 
@@ -74,11 +82,23 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
   position: absolute;
 }
 
+  #VimFxMarkersContainer.ui {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+  }
+
 /* Marker styles should be kept simple for performance. */
 #VimFxMarkersContainer .marker {
   position: absolute;
-  padding: 0.02em;
-  border: solid 1px #ad810c;
+  --padding: 0.02em;
+  padding: var(--padding);
+  --border-color: #ad810c;
+  --border-width: 1px;
+  border: solid var(--border-width) var(--border-color);
   background-color: #ffd76e;
   color: #302505;
   font: menu;
@@ -86,6 +106,9 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
   font-weight: bold;
   text-transform: uppercase;
   white-space: nowrap;
+  /* Some light-weight themes set a `text-shadow` that the hint markers inherit,
+   * making them almost unreadable. */
+  text-shadow: none;
 }
 
 #VimFxMarkersContainer .marker-char {} /* Keep as documentation. */
@@ -104,6 +127,28 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
   opacity: 0.2;
 }
 
+#VimFxMarkersContainer .marker[data-type="scrollable"] {
+  --width: 1px;
+  padding-right: calc(var(--padding) + var(--border-width) + var(--width));
+}
+
+  #VimFxMarkersContainer .marker[data-type="scrollable"]::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: var(--width);
+    border-left: inherit;
+    background-image: linear-gradient(
+      to bottom,
+      transparent 15%,
+      var(--border-color) 0,
+      var(--border-color) 75%,
+      transparent 0
+    );
+  }
+
 
 
 /***** Help Dialog *****/
@@ -117,6 +162,10 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
   background-color: Window;
   color: WindowText;
   font: menu;
+  /* Some light-weight themes set a `text-shadow` that the hint markers inherit,
+   * making them almost unreadable. */
+  text-shadow: none;
+  cursor: default;
 
   --page-padding: 3em;
   --gutter: 1em;
@@ -125,11 +174,11 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
   padding-right: var(--page-padding);
 }
 
-  #VimFxHelpDialogContainer * {
+  #VimFxHelpDialogContainer .vimfx-box {
     display: block;
   }
 
-  #VimFxHelpDialogContainer :-moz-any([class^="heading"], .key-sequence) {
+  #VimFxHelpDialogContainer :-moz-any(.heading-mode, .heading-category, .key-sequence) {
     font-weight: bold;
     white-space: nowrap;
   }
@@ -139,6 +188,7 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
   position: relative;
   margin-left: var(--gutter);
   margin-bottom: calc(var(--page-padding) / 4);
+  font-weight: bold;
 }
 
   #VimFxHelpDialogContainer .heading-main {
@@ -245,5 +295,23 @@ toolbarpaletteitem[place="palette"] > #VimFxButton {
       /* The space to the left should be wide enough to fit `<c-w>`. */
       width: calc(100% - 3.5em);
     }
+
+  #VimFxHelpDialogContainer .search-input {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+  }
+
+  #VimFxHelpDialogContainer .search-match {} /* Keep as documentation. */
+
+  #VimFxHelpDialogContainer .search-non-match {
+    opacity: 0.2;
+  }
+
+  #VimFxHelpDialogContainer .search-highlight {
+    display: inline;
+    background-color: Highlight;
+    color: HighlightText;
+  }
 
 }

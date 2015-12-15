@@ -11,15 +11,12 @@ Anton Khodakivskiy (@akhodakivskiy)
 # Translators
 - Frank Hase (@Kambfhase) – de
 - Benedikt (@benediktg) – de
-- Theodore Keloglou (@sirodoht) – el-GR
+- @just-barcodes – de
 - Mickaël RAYBAUD-ROIG (@m-r-r) – fr
-- Szabó Krisztián (@thenonameguy) – hu
 - Yoppy Halilintar (@comepradz) – id
 - Carlo Bertoldi (@cbertoldi) – it
 - Kaoru Esashika (@pluser) – ja
 - @HJTP – nl
-- Greg Navis (@grn) – pl
-- @morethanoneanimal – pl
 - Átila Camurça Alves (@atilacamurca) – pt-BR
 - Anton Khodakivskiy (@akhodakivskiy) – ru
 - Nicholas Guriev (@mymedia2) – ru
@@ -28,5 +25,6 @@ Anton Khodakivskiy (@akhodakivskiy)
 - Simon Lydell (@lydell) – sv-SE
 - Wang Zhuochun (@zhuochun) – zh-CN
 - @mozillazg – zh-CN
+- @av2000ii – zh-CN
 - Robert Wang (@cyberrob) – zh-TW
 - Salas (@leVirve) – zh-TW

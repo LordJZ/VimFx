@@ -10,6 +10,7 @@ All of VimFx’s keyboard shortcuts can be customized in VimFx’s settings page
 the Add-ons Manager. Doing so is really easy. You get far just by looking at the
 defaults and trying things out. If not, read on.
 
+
 ## Key notation
 
 VimFx’s key notation is inspired by Vim’s key notation. An example:
@@ -51,6 +52,21 @@ If you’d like to know even more about the key notation, see
 
 [timeout]: options.md#timeout
 [vim-like-key-notation]: https://github.com/lydell/vim-like-key-notation
+
+
+## Tips
+
+If you use more than one keyboard layout, remember to check out the [Ignore
+keyboard layout] option.
+
+If you’d like see what VimFx interprets a key stroke as, you can (ab)use the
+[`m`] command. Press `m` followed by your desired key stroke. A [notification]
+will appear, including the interpreted key notation for that key press.
+
+[Ignore keyboard layout]: options.md#ignore-keyboard-layout
+[`m`]: commands.md#marks-m-and-
+[notification]: notifications.md
+
 
 ## Special keys
 
@@ -99,13 +115,5 @@ the key presses. This makes the VimFx shortcuts work consistently regardless of
 what the current page happens to be up to.
 
 Sometimes, though, it is useful to let the page override a shortcut. For
-example, the [focus next/previous element] commands, use `<late>` in their
-default shorcuts: `<force><late><tab>` and `<force><late><s-tab>`, respectively.
-`<force>` is there so that you can press `<tab>` inside a text input to get to
-the next one; `<late>` lets the page offer tab completion instead, for example.
-
-`<late>` is also useful if you plan to use the arrow keys for VimFx’s scrolling
-commands, while still being able to move the focus in the custom menus some
-sites use.
-
-[focus next/previous element]: commands.md#focus-nextprevious-element
+example, if you plan to use the arrow keys for VimFx’s scrolling commands, while
+still being able to move the focus in the custom menus some sites use.

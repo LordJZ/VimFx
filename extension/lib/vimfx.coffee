@@ -27,12 +27,13 @@ prefs    = require('./prefs')
 utils    = require('./utils')
 Vim      = require('./vim')
 
-DIGIT     = /^\d$/
+DIGIT = /^\d$/
 
 class VimFx extends utils.EventEmitter
   constructor: (@modes, @options) ->
     super()
     @vims = new WeakMap()
+    @lastClosedVim = null
     @createKeyTrees()
     @reset()
     @on('modeChange', ({mode}) => @reset(mode))
@@ -51,25 +52,24 @@ class VimFx extends utils.EventEmitter
   getCurrentVim: (window) -> @vims.get(window.gBrowser.selectedBrowser)
 
   reset: (mode = null) ->
-    @currentKeyTree = if mode then @keyTrees[mode] else {}
+    # Modes without commands are returned by neither `.getGroupedCommands()` nor
+    # `createKeyTrees`. Fall back to an empty tree.
+    @currentKeyTree = @keyTrees[mode] ? {}
     @lastInputTime = 0
     @count = ''
 
   createKeyTrees: ->
-    {
-      @keyTrees
-      @commandsWithSpecialKeys
-      @errors
-    } = createKeyTrees(@getGroupedCommands(), @SPECIAL_KEYS)
+    {@keyTrees, @errors} = createKeyTrees(@getGroupedCommands(), @SPECIAL_KEYS)
 
   stringifyKeyEvent: (event) ->
     return notation.stringify(event, {
+      ignoreCtrlAlt: @options.ignore_ctrl_alt
       ignoreKeyboardLayout: @options.ignore_keyboard_layout
       translations: @options.translations
     })
 
   consumeKeyEvent: (event, vim, focusType) ->
-    { mode } = vim
+    {mode} = vim
     return unless keyStr = @stringifyKeyEvent(event)
 
     now = Date.now()
@@ -85,43 +85,46 @@ class VimFx extends utils.EventEmitter
 
     type = 'none'
     command = null
+    specialKeys = {}
 
     switch
+      when keyStr of @currentKeyTree and
+           not (toplevel and keyStr == '0' and @count != '')
+        next = @currentKeyTree[keyStr]
+        if next instanceof Leaf
+          type = 'full'
+          {command, specialKeys} = next
+        else
+          @currentKeyTree = next
+          type = 'partial'
+
       when toplevel and DIGIT.test(keyStr) and
            not (keyStr == '0' and @count == '')
         @count += keyStr
         type = 'count'
 
-      when keyStr of @currentKeyTree
-        next = @currentKeyTree[keyStr]
-        if next instanceof Leaf
-          type = 'full'
-          command = next.command
-        else
-          @currentKeyTree = next
-          type = 'partial'
-
       else
         @reset(mode)
 
     count = if @count == '' then undefined else Number(@count)
-    specialKeys = @commandsWithSpecialKeys[command?.pref] ? {}
     focus = @adjustFocusType(event, vim, focusType, keyStr)
     unmodifiedKey = notation.parse(keyStr).key
     @reset(mode) if type == 'full'
     return {
       type, focus, command, count, specialKeys, keyStr, unmodifiedKey, toplevel
+      discard: @reset.bind(this, mode)
     }
 
   adjustFocusType: (event, vim, focusType, keyStr) ->
     # Frame scripts and the tests don’t pass in `originalTarget`.
     document = event.originalTarget?.ownerDocument
     if focusType == null and document and
-       (vim.window.TabView.isVisible() or
+       # TODO: Remove when Tab Groups have been removed.
+       (vim.window.TabView?.isVisible() or
         document.fullscreenElement or document.mozFullScreenElement)
       return 'other'
 
-    keys = @options["#{ focusType }_element_keys"]
+    keys = @options["#{focusType}_element_keys"]
     return null if keys and keyStr not in keys
 
     return focusType
@@ -169,18 +172,17 @@ class VimFx extends utils.EventEmitter
 byOrder = (a, b) -> a.order - b.order
 
 class Leaf
-  constructor: (@command, @originalSequence) ->
+  constructor: (@command, @originalSequence, @specialKeys) ->
 
-createKeyTrees = (groupedCommands, specialKeys) ->
+createKeyTrees = (groupedCommands, specialKeyStrings) ->
   keyTrees = {}
   errors = {}
-  commandsWithSpecialKeys = {}
 
   pushError = (error, command) ->
     (errors[command.pref] ?= []).push(error)
 
-  pushOverrideErrors = (command, tree) ->
-    { command: overridingCommand, originalSequence } = getFirstLeaf(tree)
+  pushOverrideErrors = (command, originalSequence, tree) ->
+    {command: overridingCommand} = getFirstLeaf(tree)
     error =
       id:      'overridden_by'
       subject: overridingCommand.description()
@@ -196,26 +198,27 @@ createKeyTrees = (groupedCommands, specialKeys) ->
 
   for mode in groupedCommands
     keyTrees[mode._name] = {}
-    for category in mode.categories then for { command } in category.commands
-      { shortcuts, errors: parseErrors } = parseShortcutPref(command.pref)
+    for category in mode.categories then for {command} in category.commands
+      {shortcuts, errors: parseErrors} = parseShortcutPref(command.pref)
       pushError(error, command) for error in parseErrors
       command._sequences = []
 
       for shortcut in shortcuts
-        [ prefixKeys..., lastKey ] = shortcut.normalized
+        [prefixKeys..., lastKey] = shortcut.normalized
         tree = keyTrees[mode._name]
         command._sequences.push(shortcut.original)
         seenNonSpecialKey = false
+        specialKeys = {}
 
         errored = false
         for prefixKey, index in prefixKeys
-          if prefixKey in specialKeys
+          if prefixKey in specialKeyStrings
             if seenNonSpecialKey
               pushSpecialKeyError(command, shortcut.original, prefixKey)
               errored = true
               break
             else
-              (commandsWithSpecialKeys[command.pref] ?= {})[prefixKey] = true
+              specialKeys[prefixKey] = true
               continue
           else
             seenNonSpecialKey = true
@@ -223,7 +226,7 @@ createKeyTrees = (groupedCommands, specialKeys) ->
           if prefixKey of tree
             next = tree[prefixKey]
             if next instanceof Leaf
-              pushOverrideErrors(command, next)
+              pushOverrideErrors(command, shortcut.original, next)
               errored = true
               break
             else
@@ -232,16 +235,16 @@ createKeyTrees = (groupedCommands, specialKeys) ->
             tree = tree[prefixKey] = {}
         continue if errored
 
-        if lastKey in specialKeys
+        if lastKey in specialKeyStrings
           subject = if seenNonSpecialKey then lastKey else shortcut.original
           pushSpecialKeyError(command, shortcut.original, subject)
           continue
         if lastKey of tree
-          pushOverrideErrors(command, tree[lastKey])
+          pushOverrideErrors(command, shortcut.original, tree[lastKey])
           continue
-        tree[lastKey] = new Leaf(command, shortcut.original)
+        tree[lastKey] = new Leaf(command, shortcut.original, specialKeys)
 
-  return {keyTrees, commandsWithSpecialKeys, errors}
+  return {keyTrees, errors}
 
 parseShortcutPref = (pref) ->
   shortcuts = []

@@ -22,22 +22,21 @@
 # This file defines VimFx’s modes, and their respective commands. The Normal
 # mode commands are defined in commands.coffee, though.
 
-{ commands
-, findStorage }              = require('./commands')
-defaults                     = require('./defaults')
-help                         = require('./help')
-hints                        = require('./hints')
-translate                    = require('./l10n')
-{ rotateOverlappingMarkers } = require('./marker')
-utils                        = require('./utils')
+{commands, findStorage}    = require('./commands')
+defaults                   = require('./defaults')
+help                       = require('./help')
+hints                      = require('./hints')
+translate                  = require('./l10n')
+{rotateOverlappingMarkers} = require('./marker')
+utils                      = require('./utils')
 
 # Helper to create modes in a DRY way.
-mode = (modeName, obj, commands) ->
-  obj.name  = translate.bind(null, "mode.#{ modeName }")
+mode = (modeName, obj, commands = null) ->
+  obj.name  = translate.bind(null, "mode.#{modeName}")
   obj.order = defaults.mode_order[modeName]
   obj.commands = {}
   for commandName, fn of commands
-    pref = "mode.#{ modeName }.#{ commandName }"
+    pref = "mode.#{modeName}.#{commandName}"
     obj.commands[commandName] =
       pref:        defaults.BRANCH + pref
       run:         fn
@@ -49,24 +48,25 @@ mode = (modeName, obj, commands) ->
 
 
 mode('normal', {
-  onEnter: ({ vim, storage }, options = {}) ->
+  onEnter: ({vim, storage}, options = {}) ->
     if options.returnTo
       storage.returnTo = options.returnTo
     else if storage.returnTo
       vim.enterMode(storage.returnTo)
       storage.returnTo = null
 
-  onLeave: ({ vim }) ->
+  onLeave: ({vim}) ->
     vim._run('clear_inputs')
     help.removeHelp(vim.window)
 
   onInput: (args, match) ->
-    { vim, storage, uiEvent } = args
-    { keyStr } = match
+    {vim, storage, uiEvent} = args
+    {keyStr} = match
 
     autoInsertMode = (match.focus != null)
     if match.type == 'none' or
        (autoInsertMode and not match.specialKeys['<force>'])
+      match.discard()
       if storage.returnTo
         vim.enterMode(storage.returnTo)
         storage.returnTo = null
@@ -101,7 +101,7 @@ mode('normal', {
       # dialog too.
       return autoInsertMode
 
-    # Note that this special handling of Escape is only used in normal mode.
+    # Note that this special handling of Escape is only used in Normal mode.
     # There are two reasons we might suppress it in other modes. If some custom
     # dialog of a website is open, we should be able to cancel hint markers on
     # it without closing it. Secondly, otherwise cancelling hint markers on
@@ -112,7 +112,7 @@ mode('normal', {
 
 
 mode('hints', {
-  onEnter: ({ vim, storage }, markers, callback, count = 1) ->
+  onEnter: ({vim, storage}, markers, callback, count = 1) ->
     storage.markers  = markers
     storage.callback = callback
     storage.count    = count
@@ -122,7 +122,7 @@ mode('hints', {
     # retroactively.
     return storage
 
-  onLeave: ({ vim, storage }) ->
+  onLeave: ({vim, storage}) ->
     vim.window.setTimeout(hints.removeHints.bind(null, vim.window),
                           vim.options.hints_timeout)
     for key of storage
@@ -130,8 +130,8 @@ mode('hints', {
     return
 
   onInput: (args, match) ->
-    { vim, storage } = args
-    { markers, callback } = storage
+    {vim, storage} = args
+    {markers, callback} = storage
 
     if match.type == 'full'
       match.command.run(args)
@@ -151,6 +151,7 @@ mode('hints', {
         if again
           vim.window.setTimeout((->
             marker.markMatched(false) for marker in matchedMarkers
+            return
           ), vim.options.hints_timeout)
           marker.reset() for marker in markers
           storage.numEnteredChars = 0
@@ -162,39 +163,39 @@ mode('hints', {
     return true
 
 }, {
-  exit: ({ vim, storage }) ->
+  exit: ({vim, storage}) ->
     # The hints are removed automatically when leaving the mode, but after a
     # timeout. When aborting the mode we should remove the hints immediately.
     hints.removeHints(vim.window)
     vim.enterMode('normal')
 
-  rotate_markers_forward: ({ storage }) ->
+  rotate_markers_forward: ({storage}) ->
     rotateOverlappingMarkers(storage.markers, true)
 
-  rotate_markers_backward: ({ storage }) ->
+  rotate_markers_backward: ({storage}) ->
     rotateOverlappingMarkers(storage.markers, false)
 
-  delete_hint_char: ({ storage }) ->
+  delete_hint_char: ({storage}) ->
     for marker in storage.markers
       switch marker.hintIndex - storage.numEnteredChars
         when  0 then marker.deleteHintChar()
         when -1 then marker.show()
     storage.numEnteredChars-- unless storage.numEnteredChars == 0
 
-  increase_count: ({ storage }) -> storage.count++
+  increase_count: ({storage}) -> storage.count++
 })
 
 
 
 mode('ignore', {
-  onEnter: ({ vim, storage }, count = null) ->
+  onEnter: ({vim, storage}, count = null) ->
     storage.count = count
 
-  onLeave: ({ vim, storage }) ->
+  onLeave: ({vim, storage}) ->
     vim._run('blur_active_element') unless storage.count?
 
   onInput: (args, match) ->
-    { vim, storage } = args
+    {vim, storage} = args
     switch storage.count
       when null
         if match.type == 'full'
@@ -207,8 +208,8 @@ mode('ignore', {
     return false
 
 }, {
-  exit:    ({ vim }) -> vim.enterMode('normal')
-  unquote: ({ vim }) -> vim.enterMode('normal', {returnTo: 'ignore'})
+  exit:    ({vim}) -> vim.enterMode('normal')
+  unquote: ({vim}) -> vim.enterMode('normal', {returnTo: 'ignore'})
 })
 
 
@@ -216,7 +217,7 @@ mode('ignore', {
 mode('find', {
   onEnter: ->
 
-  onLeave: ({ vim }) ->
+  onLeave: ({vim}) ->
     findBar = vim.window.gBrowser.getFindBar()
     findStorage.lastSearchString = findBar._findField.value
 
@@ -228,5 +229,21 @@ mode('find', {
     return false
 
 }, {
-  exit: ({ findBar }) -> findBar.close()
+  exit: ({findBar}) -> findBar.close()
+})
+
+
+
+mode('marks', {
+  onEnter: ({storage}, callback) ->
+    storage.callback = callback
+
+  onLeave: ({storage}) ->
+    storage.callback = null
+
+  onInput: (args, match) ->
+    {vim, storage} = args
+    storage.callback(match.keyStr)
+    vim.enterMode('normal')
+    return true
 })

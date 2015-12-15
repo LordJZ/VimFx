@@ -111,8 +111,8 @@ migrations[0] = ->
     return keys.map((key) -> key.join('')).join('    ')
 
   for name, newName of conversions
-    pref = "commands.#{ name }.keys"
-    prefs.set("mode.#{ newName }", convert(prefs.get(pref))) if prefs.has(pref)
+    pref = "commands.#{name}.keys"
+    prefs.set("mode.#{newName}", convert(prefs.get(pref))) if prefs.has(pref)
   return
 
 migrations[1] = ->
@@ -132,5 +132,18 @@ migrations[2] = ->
 
   convert('prev_patterns')
   convert('next_patterns')
+
+migrations[3] = ->
+  pref = 'mode.normal.esc'
+  return unless prefs.has(pref)
+  prefs.set(pref, prefs.get(pref).replace(
+    /(^|\s)(?!(?:<late>)?<force>)(?=\S)/g,
+    '$1<force>'
+  ))
+
+migrations[4] = ->
+  pref = 'last_scroll_position_mark'
+  return unless prefs.has(pref)
+  prefs.set('scroll.last_position_mark', prefs.get(pref))
 
 module.exports = migrations

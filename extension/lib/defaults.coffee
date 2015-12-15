@@ -32,6 +32,7 @@ shortcuts =
       'gh':        'go_home'
       'H':         'history_back'
       'L':         'history_forward'
+      'gH':        'history_list'
       'r':         'reload'
       'R':         'reload_force'
       'ar':        'reload_all'
@@ -52,6 +53,8 @@ shortcuts =
       'G':         'scroll_to_bottom'
       '0  ^':      'scroll_to_left'
       '$':         'scroll_to_right'
+      'm':         'mark_scroll_position'
+      '`':         'scroll_to_mark'
 
     'tabs':
       't':         'tab_new'
@@ -60,12 +63,14 @@ shortcuts =
       'K    gt':   'tab_select_next'
       'gJ':        'tab_move_backward'
       'gK':        'tab_move_forward'
+      'gw':        'tab_move_to_window'
       'g0':        'tab_select_first'
       'g^':        'tab_select_first_non_pinned'
       'g$':        'tab_select_last'
       'gp':        'tab_toggle_pinned'
       'x':         'tab_close'
       'X':         'tab_restore'
+      'gX':        'tab_restore_list'
       'gx$':       'tab_close_to_end'
       'gxa':       'tab_close_other'
 
@@ -73,25 +78,29 @@ shortcuts =
       'f':         'follow'
       'F':         'follow_in_tab'
       'gf':        'follow_in_focused_tab'
+      'gF':        'follow_in_window'
       'af':        'follow_multiple'
       'yf':        'follow_copy'
       'zf':        'follow_focus'
+      'zF':        'click_browser_element'
       '[':         'follow_previous'
       ']':         'follow_next'
       'q':         'HideTabBar'
       'gi':        'focus_text_input'
-      '<force><late><tab>':   'focus_next'
-      '<force><late><s-tab>': 'focus_previous'
 
     'find':
       '/':         'find'
       'a/':        'find_highlight_all'
+      'g/':        'find_links_only'
       'n':         'find_next'
       'N':         'find_previous'
 
     'misc':
+      'w':         'window_new'
+      'W':         'window_new_private'
       'i':         'enter_mode_ignore'
       'I':         'quote'
+      'gr':        'enter_reader_view'
       '?':         'help'
       ':':         'dev'
       '<force><escape>': 'esc'
@@ -123,12 +132,18 @@ options =
   'timeout':                2000
 
 advanced_options =
+  'notifications_enabled':              true
+  'notify_entered_keys':                true
   'prevent_target_blank':               true
+  'ignore_ctrl_alt':                    (Services.appinfo.OS == 'WINNT')
   'prevent_autofocus_modes':            'normal'
   'hints_timeout':                      200
   'smoothScroll.lines.spring-constant': '1000'
   'smoothScroll.pages.spring-constant': '2500'
   'smoothScroll.other.spring-constant': '2500'
+  'scroll.full_page_adjustment':        40
+  'scroll.half_page_adjustment':        20
+  'scroll.last_position_mark':          '`'
   'pattern_selector':                   'a, button'
   'pattern_attrs':                      'rel  role  data-tooltip  aria-label'
   'hints_toggle_in_tab':                '<c-'
@@ -136,6 +151,8 @@ advanced_options =
   'activatable_element_keys':           '<enter>'
   'adjustable_element_keys':            '<arrowup>  <arrowdown>  <arrowleft>
                                          <arrowright>  <space>  <enter>'
+  'focus_previous_key':                 '<s-tab>'
+  'focus_next_key':                     '<tab>'
   'options.key.quote':                  '<c-q>'
   'options.key.insert_default':         '<c-d>'
   'options.key.reset_default':          '<c-r>'
@@ -158,7 +175,7 @@ addCategory = (category, order) ->
     if uncategorized
       -> ''
     else
-      translate.bind(null, "category.#{ category }")
+      translate.bind(null, "category.#{category}")
   parsed_options.categories[category] = {
     name:  categoryName
     order: if uncategorized then 0 else order
@@ -179,7 +196,7 @@ for modeName, modeCategories of shortcuts
     addCategory(categoryName, categoryCounter.tick())
     commandIndex = createCounter()
     for shortcut, commandName of modeShortcuts
-      pref = "mode.#{ modeName }.#{ commandName }"
+      pref = "mode.#{modeName}.#{commandName}"
       shortcut_prefs[pref] = shortcut
       command_order[pref] = commandIndex.tick()
       categoryMap[pref] = categoryName

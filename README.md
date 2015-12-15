@@ -1,6 +1,6 @@
 # VimFx – Vim keyboard shortcuts for Firefox
 
-<img src="https://raw.githubusercontent.com/akhodakivskiy/VimFx/develop/extension/skin/icon128.png" alt="" align="right">
+<img src="extension/skin/icon128.png" alt="" align="right">
 
 [VimFx] is a [Mozilla Firefox] extension which adds Vim-style keyboard shortcuts
 for browsing and navigation, significantly reducing the use of the mouse, and
@@ -10,7 +10,7 @@ VimFx was inspired by [Vimperator] and designed after [Vimium] for [Google
 Chrome], preserving the shortcuts and behavior. If you are used to Vimium then
 it will be easy to get started with VimFx.
 
-**Mailing list:** [vimfx@librelist.com] (just send an email to subscribe)
+**Mailing list:** [vimfx@librelist.com] \(just send an email to subscribe)
 
 Check out the [documentation] and the [wiki]!
 
@@ -22,9 +22,9 @@ VimFx is made by [these awesome people][people].
 [Vimium]: http://vimium.github.io/
 [Google Chrome]: https://www.google.com/chrome
 [vimfx@librelist.com]: mailto:vimfx@librelist.com?subject=Subscribe
-[documentation]: https://github.com/akhodakivskiy/VimFx/tree/develop/documentation
+[documentation]: https://github.com/akhodakivskiy/VimFx/tree/master/documentation
 [wiki]: https://github.com/akhodakivskiy/VimFx/wiki
-[people]: https://github.com/akhodakivskiy/VimFx/blob/develop/PEOPLE.md
+[people]: https://github.com/akhodakivskiy/VimFx/blob/master/PEOPLE.md
 
 ## Why VimFx was created
 
@@ -36,7 +36,7 @@ VimFx is made by [these awesome people][people].
 >
 > VimFx will be nice to your browser and to your habits. Promise.
 >
-> <footer>– <cite>Anton Khodakivskiy</cite>, VimFx’s original author.</footer>
+> – _Anton Khodakivskiy,_ VimFx’s original author.
 
 ## Key Features
 
@@ -65,7 +65,7 @@ That opens the keyboard shortcuts dialog, which helps you remember the
 shortcuts, and lets you customize every single one of them. You can also look at
 all default shortcuts [here][defaults].
 
-[defaults]: https://github.com/akhodakivskiy/VimFx/blob/develop/extension/lib/defaults.coffee
+[defaults]: https://github.com/akhodakivskiy/VimFx/blob/master/extension/lib/defaults.coffee
 
 ## Feedback
 
@@ -77,4 +77,4 @@ Read the [contribution tips] before opening issues and pull requests.
 
 [review]: https://addons.mozilla.org/firefox/addon/vimfx/reviews/add
 [issue tracker]: https://github.com/akhodakivskiy/VimFx/issues
-[contribution tips]: https://github.com/akhodakivskiy/VimFx/blob/develop/CONTRIBUTING.md
+[contribution tips]: https://github.com/akhodakivskiy/VimFx/blob/master/CONTRIBUTING.md

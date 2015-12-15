@@ -30,13 +30,13 @@
 
 do (global = this) ->
 
-  { classes: Cc, interfaces: Ci, utils: Cu } = Components
+  {classes: Cc, interfaces: Ci, utils: Cu} = Components
   IS_FRAME_SCRIPT = (typeof content != 'undefined')
 
   if IS_FRAME_SCRIPT
     # Tell the main process that this frame script was created, and get data
     # back that only the main process has access to.
-    [ data ] = sendSyncMessage('VimFx:tabCreated')
+    [data] = sendSyncMessage('VimFx:tabCreated')
 
     # The main process told this frame script not to do anything (or there was
     # an error and no message was received at all).
@@ -44,7 +44,7 @@ do (global = this) ->
 
     FRAME_SCRIPT_ENVIRONMENT = global
     global = {}
-    [ global.__SCRIPT_URI_SPEC__, MULTI_PROCESS_ENABLED ] = data
+    [global.__SCRIPT_URI_SPEC__] = data
 
   else
     # Make `Services` and `console` available globally, just like they are in
@@ -53,8 +53,6 @@ do (global = this) ->
     Cu.import('resource://gre/modules/devtools/Console.jsm')
 
     FRAME_SCRIPT_ENVIRONMENT = null
-    MULTI_PROCESS_ENABLED =
-      Services.prefs.getBoolPref('browser.tabs.remote.autostart')
 
   shutdownHandlers = []
 
@@ -67,24 +65,24 @@ do (global = this) ->
   require = (path, moduleRoot = '.', dir = '.') ->
     unless path[0] == '.'
       # Allow `require('module/lib/foo')` in additon to `require('module')`.
-      [ match, name, subPath ] = path.match(///^ ([^/]+) (?: /(.+) )? ///)
+      [match, name, subPath] = path.match(///^ ([^/]+) (?: /(.+) )? ///)
       base = require.data[moduleRoot]?[name] ? moduleRoot
-      dir  = "#{ base }/node_modules/#{ name }"
+      dir  = "#{base}/node_modules/#{name}"
       main = require.data[dir]?['']
       path = subPath ? main ? 'index'
       moduleRoot = dir
 
-    fullPath = createURI("#{ dir }/#{ path }.js", baseURI).spec
+    fullPath = createURI("#{dir}/#{path}.js", baseURI).spec
 
     unless require.scopes[fullPath]?
       module =
         exports:    {}
-        onShutdown: Function::call.bind(Array::push, shutdownHandlers)
+        onShutdown: (fn) -> shutdownHandlers.push(fn)
       require.scopes[fullPath] = scope = {
-        require: (path) -> require(path, moduleRoot, "./#{ dirname(fullPath) }")
+        require: (path) -> require(path, moduleRoot, "./#{dirname(fullPath)}")
         module, exports: module.exports
         Cc, Ci, Cu
-        MULTI_PROCESS_ENABLED, IS_FRAME_SCRIPT, FRAME_SCRIPT_ENVIRONMENT
+        IS_FRAME_SCRIPT, FRAME_SCRIPT_ENVIRONMENT
       }
       Services.scriptloader.loadSubScript(fullPath, scope, 'UTF-8')
 
@@ -95,11 +93,11 @@ do (global = this) ->
 
   unless IS_FRAME_SCRIPT
     # Set default prefs and apply migrations as early as possible.
-    { applyMigrations } = require('./lib/legacy')
-    migrations          = require('./lib/migrations')
-    prefs               = require('./lib/prefs')
+    {applyMigrations} = require('./lib/legacy')
+    migrations        = require('./lib/migrations')
+    prefs             = require('./lib/prefs')
 
-    prefs.default._init()
+    prefs.default.init()
     applyMigrations(migrations)
 
   main = if IS_FRAME_SCRIPT then './lib/main-frame' else './lib/main'

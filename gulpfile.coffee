@@ -46,7 +46,7 @@ BASE_LOCALE = 'en-US'
 test = '--test' in process.argv or '-t' in process.argv
 ifTest = (value) -> if test then [value] else []
 
-{ join } = path
+{join} = path
 read = (filepath) -> fs.readFileSync(filepath).toString()
 template = (data) -> mustache(data, {extension: ''})
 
@@ -65,9 +65,9 @@ gulp.task('node_modules', ->
   dependencies = (name for name of pkg.dependencies)
   # Note! When installing or updating node modules, make sure that the following
   # glob does not include too much or too little!
-  gulp.src("node_modules/+(#{ dependencies.join('|') })/\
+  gulp.src("node_modules/+(#{dependencies.join('|')})/\
             {LICENSE*,{,**/!(test|examples)/}!(*min|*test*|*bench*).js}")
-    .pipe(gulp.dest("#{ DEST }/node_modules"))
+    .pipe(gulp.dest("#{DEST}/node_modules"))
 )
 
 gulp.task('coffee', ->
@@ -87,7 +87,7 @@ gulp.task('chrome.manifest', ->
 )
 
 gulp.task('install.rdf', ->
-  [ [ { name: creator } ], developers, contributors, translators ] =
+  [[{name: creator}], developers, contributors, translators] =
     read('PEOPLE.md').trim().replace(/^#.+\n|^\s*-\s*/mg, '').split('\n\n')
     .map((block) -> block.split('\n').map((name) -> {name}))
 
@@ -121,7 +121,7 @@ gulp.task('tests-list', ->
     .map((name) -> name.match(/^(test-.+)\.coffee$/)?[1])
     .filter(Boolean)
   )
-  gulp.src("#{ TEST }/tests-list.js.tmpl", {base: 'extension'})
+  gulp.src("#{TEST}/tests-list.js.tmpl", {base: 'extension'})
     .pipe(template({list}))
     .pipe(gulp.dest(DEST))
 )
@@ -142,7 +142,7 @@ gulp.task('build', (callback) ->
 )
 
 gulp.task('xpi', ['build'], ->
-  gulp.src("#{ DEST }/**/*")
+  gulp.src("#{DEST}/**/*")
     .pipe(zip(XPI, {compress: false}))
     .pipe(gulp.dest(DEST))
 )
@@ -161,25 +161,26 @@ gulp.task('lint', ->
 gulp.task('sloc', ->
   gulp.src([
     'extension/bootstrap.coffee'
-    'extension/lib/!(migrations|legacy).coffee']
-  )
+    'extension/lib/!(migrations|legacy).coffee'
+  ])
     .pipe(sloc())
 )
 
 gulp.task('release', (callback) ->
-  { version } = pkg
-  message = "VimFx v#{ version }"
+  {version} = pkg
+  message = "VimFx v#{version}"
   today = new Date().toISOString()[...10]
   merge([
-    gulp.src('package.json'),
+    gulp.src('package.json')
     gulp.src('CHANGELOG.md')
-      .pipe(header("### #{ version } (#{ today })\n\n"))
+      .pipe(header("### #{version} (#{today})\n\n"))
       .pipe(gulp.dest('.'))
   ])
     .pipe(git.commit(message))
     .on('end', ->
-      git.tag("v#{ version }", message, callback)
+      git.tag("v#{version}", message, callback)
     )
+  return
 )
 
 gulp.task('changelog', ->
@@ -187,12 +188,29 @@ gulp.task('changelog', ->
   for arg in process.argv when /^-[1-9]$/.test(arg)
     num = Number(arg[1])
   entries = read('CHANGELOG.md').split(/^### .+/m)[1..num].join('')
-  process.stdout.write(marked(entries))
+  process.stdout.write(html(entries))
 )
 
 gulp.task('readme', ->
-  process.stdout.write(marked(read('README.md')))
+  process.stdout.write(html(read('README.md')))
 )
+
+# Reduce markdown to the small subset of HTML that AMO allows. Note that AMO
+# converts newlines to `<br>`.
+html = (string) ->
+  return marked(string)
+    .replace(/// <h\d [^>]*> ([^<>]+) </h\d> ///g, '\n\n<b>$1</b>')
+    .replace(///\s* <p> ((?: [^<] | <(?!/p>) )+) </p>///g, (match, text) ->
+      return "\n#{text.replace(/\s*\n\s*/g, ' ')}\n\n"
+    )
+    .replace(///<li> ((?: [^<] | <(?!/li>) )+) </li>///g, (match, text) ->
+      return "<li>#{text.replace(/\s*\n\s*/g, ' ')}</li>"
+    )
+    .replace(/<br>/g, '\n')
+    .replace(///<(/?)kbd>///g, '<$1code>')
+    .replace(/<img[^>]*>\s*/g, '')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim() + '\n'
 
 gulp.task('faster', ->
   gulp.src('gulpfile.coffee')
@@ -202,19 +220,26 @@ gulp.task('faster', ->
 
 gulp.task('sync-locales', ->
   baseLocale = BASE_LOCALE
+  compareLocale = null
   for arg in process.argv when arg[...2] == '--'
-    baseLocale = arg[2..]
+    name = arg[2..]
+    if name[-1..] == '?' then compareLocale = name[...-1] else baseLocale = name
+
   results = fs.readdirSync(join(LOCALE, baseLocale))
     .filter((file) -> path.extname(file) == '.properties')
     .map(syncLocale.bind(null, baseLocale))
+
   if baseLocale == BASE_LOCALE
     report = []
-    for {fileName, translatedCount, total} in results
-      report.push("#{ fileName }:")
-      for localeName, count of translatedCount
-        paddedName = "#{ localeName }:   "[...6]
-        percentage = Math.round((count / total) * 100)
-        report.push("  #{ paddedName } #{ percentage }%")
+    for {fileName, untranslated, total} in results
+      report.push("#{fileName}:")
+      for localeName, strings of untranslated
+        paddedName = "#{localeName}:   "[...6]
+        percentage = Math.round((1 - strings.length / total) * 100)
+        if localeName == compareLocale or compareLocale == null
+          report.push("  #{paddedName} #{percentage}%")
+        if localeName == compareLocale
+          report.push(strings.map((string) -> "    #{string}")...)
     process.stdout.write(report.join('\n') + '\n')
 )
 
@@ -224,14 +249,14 @@ syncLocale = (baseLocaleName, fileName) ->
   oldBasePath = "#{basePath}.old"
   if fs.existsSync(oldBasePath)
     oldBase = parseLocaleFile(read(oldBasePath))
-  translatedCount = {}
+  untranslated = {}
   for localeName in fs.readdirSync(LOCALE) when localeName != baseLocaleName
     localePath = join(LOCALE, localeName, fileName)
     locale = parseLocaleFile(read(localePath))
-    translatedCount[localeName] = 0
-    newLocale = base.template.map((line) ->
+    untranslated[localeName] = []
+    newLocale = base.template.map((line, index) ->
       if Array.isArray(line)
-        [ key ] = line
+        [key] = line
         oldValue = oldBase?.keys[key]
         value =
           if (oldValue? and oldValue != base.keys[key]) or
@@ -239,21 +264,23 @@ syncLocale = (baseLocaleName, fileName) ->
             base.keys[key]
           else
             locale.keys[key]
-        translatedCount[localeName]++ if value != base.keys[key] or value == ''
-        return "#{ key }=#{ value }"
+        result = "#{key}=#{value}"
+        if value == base.keys[key] and value != ''
+          untranslated[localeName].push("#{index + 1}: #{result}")
+        return result
       else
         return line
     )
     fs.writeFileSync(localePath, newLocale.join(base.newline))
-  return {fileName, translatedCount, total: Object.keys(base.keys).length}
+  return {fileName, untranslated, total: Object.keys(base.keys).length}
 
 parseLocaleFile = (fileContents) ->
   keys  = {}
   lines = []
-  [ newline ] = fileContents.match(/\r?\n/)
+  [newline] = fileContents.match(/\r?\n/)
   for line in fileContents.split(newline)
     line = line.trim()
-    [ match, key, value ] = line.match(///^ ([^=]+) = (.*) $///) ? []
+    [match, key, value] = line.match(///^ ([^=]+) = (.*) $///) ? []
     if match
       keys[key] = value
       lines.push([key])
@@ -266,7 +293,7 @@ gulp.task(helpHTMLFile, ->
   unless fs.existsSync(helpHTMLFile)
     process.stdout.write("""
       First enable the “Copy to clipboard” line in help.coffee, show the help
-      dialog and finally dump the clipboard into #{ helpHTMLFile }.
+      dialog and finally dump the clipboard into #{helpHTMLFile}.
     """)
     return
   gulp.src('help.html')
@@ -281,8 +308,8 @@ helpHTMLPrelude = '''
   <meta charset=utf-8>
   <title>VimFx help</title>
   <style>
-    * { margin: 0; }
-    body > :first-child { min-height: 100vh; }
+    * {margin: 0;}
+    body > :first-child {min-height: 100vh;}
   </style>
   <link rel=stylesheet href=extension/skin/style.css>
 '''

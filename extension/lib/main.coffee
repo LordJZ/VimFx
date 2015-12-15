@@ -60,6 +60,9 @@ module.exports = (data, reason) ->
 
   button.injectButton(vimfx)
 
+  setWindowAttribute = (window, name, value = 'none') ->
+    window.document.documentElement.setAttribute("vimfx-#{name}", value)
+
   onModeDisplayChange = (vimOrEvent) ->
     window = vimOrEvent.window ? vimOrEvent.originalTarget.ownerGlobal
 
@@ -67,16 +70,20 @@ module.exports = (data, reason) ->
     # might not be the current `vim` anymore, so always get the current one.
     return unless vim = vimfx.getCurrentVim(window)
 
-    window.document.documentElement.setAttribute('vimfx-mode', vim.mode)
+    setWindowAttribute(window, 'mode', vim.mode)
     vimfx.emit('modeDisplayChange', vim)
 
   vimfx.on('modeChange', onModeDisplayChange)
   vimfx.on('TabSelect',  onModeDisplayChange)
 
+  vimfx.on('focusTypeChange', ({vim, focusType}) ->
+    setWindowAttribute(vim.window, 'focus-type', focusType)
+  )
+
   # Setup the public API. See public.coffee for more information. This is done
   # _after_ the prefs observing setup, so that option prefs get validated and
   # used when calling `vimfx.set()`.
-  apiUrl = "#{ data.resourceURI.spec }lib/public.js"
+  apiUrl = "#{data.resourceURI.spec}lib/public.js"
   prefs.set('api_url', apiUrl)
   publicScope = Cu.import(apiUrl, {})
   api = createAPI(vimfx)
@@ -106,21 +113,23 @@ module.exports = (data, reason) ->
   test?(vimfx)
 
   windows = new WeakSet()
-  messageManager.listen('tabCreated', (data, { target }) ->
+  messageManager.listen('tabCreated', (data, {target: browser}) ->
     # Frame script are run in more places than we need. Tell those not to do
     # anything.
-    return false unless target.getAttribute('messagemanagergroup') == 'browsers'
+    group = browser.getAttribute('messagemanagergroup')
+    return false unless group == 'browsers'
 
-    window = target.ownerGlobal
-    vimfx.addVim(target)
+    window = browser.ownerGlobal
+    vimfx.addVim(browser)
 
     unless windows.has(window)
       windows.add(window)
       eventManager = new UIEventManager(vimfx, window)
       eventManager.addListeners(vimfx, window)
-      window.document.documentElement.setAttribute('vimfx-mode', 'normal')
+      setWindowAttribute(window, 'mode', 'normal')
+      setWindowAttribute(window, 'focus-type', null)
 
-    return [__SCRIPT_URI_SPEC__, MULTI_PROCESS_ENABLED]
+    return [__SCRIPT_URI_SPEC__]
   )
 
   messageManager.load('bootstrap')

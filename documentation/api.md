@@ -6,15 +6,11 @@ See the file README.md for copying conditions.
 
 # Public API
 
-VimFx has a public API. It is intended to be used by:
+VimFx has a public API. It is intended to be used by users who would like to
+write a so-called [config file].
 
-- Users who prefer to configure things using text files.
-- Users who would like to add custom commands.
-- Users who would like to set [special options].
-- Users who would like to make site-specific customizations.
-- Extension authors who would like to extend VimFx.
-
-VimFx users who use the public API should write a so-called [config file].
+Some parts of the API is also intended to be used by authors who would like to
+extend VimFx.
 
 
 ## Getting the API
@@ -213,8 +209,9 @@ Runs `listener(data)` when `eventName` is fired.
 
 #### The `locationChange` event
 
-Occurs when opening a new tab or navigating to a new URL causing a full page
-load. The data passed to listeners is an object with the following properties:
+Occurs when opening a new tab, navigating to a new URL or refreshing the page,
+causing a full page load. The data passed to listeners is an object with the
+following properties:
 
 - vim: The current [vim object].
 - location: A [location object].
@@ -223,12 +220,29 @@ This can be used to enter a different mode by default on some pages (which can
 be used to replace the blacklist option).
 
 ```js
-vimfx.on('load', ({vim, location}) => {
+vimfx.on('locationChange', ({vim, location}) => {
   if (location.hostname === 'example.com') {
     vim.enterMode('ignore')
   }
 })
 ```
+
+#### The `notification` and `hideNotification` events
+
+The `notification` event occurs when `vim.notify(message)` is called, and means
+that `message` should be displayed to the user.
+
+The `hideNotification` event occurs when the `vim.hideNotification()` is called,
+and means that the current notification is requested to be hidden.
+
+The data passed to listeners is an object with the following properties:
+
+- vim: The current [vim object].
+- message: The message that should be notified. Only for the `notification`
+  event.
+
+Both of these events are emitted even if the [`notifications_enabled`] option is
+disabled, allowing you to display notifications in any way you want.
 
 #### The `modeChange` event
 
@@ -252,11 +266,30 @@ the `event` object passed to the standard Firefox [TabSelect] event.
 ### The `modeDisplayChange` event
 
 This is basically a combination of the `modeChange` and the `TabSelect` events.
-The event is useful for knowing when to update UI showing the current mode. (In
-fact, VimFx itself uses it to update the toolbar [button]!) The data passed to
-listeners is the current [vim object].
+The event is useful for knowing when to update UI showing the current mode. The
+data passed to listeners is the current [vim object].
 
-You can also highlight the current mode using [styling].
+(VimFx itself uses this event to update the toolbar [button], by setting
+`#main-window[vimfx-mode]` to the current mode. You may use this with custom
+[styling].)
+
+#### The `focusTypeChange` event
+
+Occurs when focusing or blurring any element. The data passed to listeners is an
+object with the following properties:
+
+- vim: The current [vim object].
+- focusType: A string similar to `match.focus` of a [match object], with the
+  following differences:
+
+  - The current pressed key is _not_ taken into account, because focus and blur
+    events have no current key.
+  - The value is never `null` or `'other'`, but `'none'` instead.
+
+(VimFx itself uses this event to update the toolbar [button], by setting
+`#main-window[vimfx-focus-type]` to the current focus type. You may use this
+with custom [styling].)
+
 
 
 ### `vimfx.modes`
@@ -426,8 +459,8 @@ A `match` object has the following properties:
   following values, depending on what kind of _element_ is focused and which
   _key_ was pressed:
 
-  - `'editable'`: element: a text input or a `contenteditable` element.
-    key: any pressed key.
+  - `'editable'`: element: some kind of text input, a `<select>` element or a
+    `contenteditable` element. key: any pressed key.
   - `'activatable'`: element: an “activatable” element (link or button).
     key: see the [`activatable_element_keys`] option.
   - `'adjustable'`: element: an “adjustable” element (form control or video
@@ -468,6 +501,10 @@ A `match` object has the following properties:
   shortcut key tree. This is `true` unless the match is part of the tail of a
   multi-key shortcut.
 
+- discard(): `Function`. Discards keys pressed so far: If `type` is `'partial'`
+  or `'count'`. For example, if you have typed `12g`, run `match.discard()` and
+  then press `$`, the `$` command will be run instead of `12g$`.
+
 ### Vim object
 
 There is one `vim` object per tab.
@@ -493,9 +530,9 @@ A `vim` object has the following properties:
 - isUIEvent(event): `Function`. Returns `true` if `event` occurred in the
   browser UI, and `false` otherwise (if it occurred in web page content).
 
-- notify(title, options = {}): `Function`. Display a notification with the title
-  `title` (a `String`). If you need more text than a title, use `options.body`.
-  See [`Notification`] for more information.
+- notify(message): `Function`. Display a notification with the text `message`.
+
+- hideNotification(): `Function`. Hide the current notification (if any).
 
 - markPageInteraction(): `Function`. Marks that the user has interacted with the
   page. After that [autofocus prevention] is not done anymore. Commands
@@ -533,15 +570,95 @@ Technically, it is a [`URL`] instance. You can experient with the current
 location object by opening the [web console] and entering `location`.
 
 
+## Frame script API
+
+In frame scripts, the API consists of assigning global variables prefixed with
+`VimFx`. VimFx then uses these when needed.
+
+```js
+this.VimFxSomething = ...
+```
+
+### `VimFxHintMatcher(...)`
+
+**Note:** This should only be used by config file users, not by extension
+authors who wish to extend VimFx.
+
+If available, it is used to let you customize which elements do and don’t get
+hints. It might help to read about [the `f` commands] first.
+
+```js
+this.VimFxHintMatcher = (id, element, {type, semantic}) => {
+  // Inspect `element` and change `type` and `semantic` if needed.
+  return {type, semantic}
+}
+```
+
+The arguments passed to this function are:
+
+- id: `String`. A string identifying which command is used:
+
+  - `'normal'`: `f` or `af`.
+  - `'tab'`: `F`, `gf` or `gF`.
+  - `'copy'`: `yf`.
+  - `'focus'`: `zf`.
+
+- element: `Element`. One out of all elements currently inside the viewport.
+
+- info: `Object`. It has the following properties:
+
+  - type: `String` or `null`. If a string, it means that `element` should get a
+    hint. If `null`, it won’t. See the available strings below. When a marker
+    is matched, `type` decides what happens to `element`.
+  - semantic: `Boolean`. Indicates whether or not the element is “semantic.”
+    Semantic elements get better hints.
+
+  This object contains information on how VimFx has matched `element`. You have
+  the opportunity to change this.
+
+The available type strings depend on `id`:
+
+- normal:
+
+  - link: A “proper” link (not used as a button with the help of JavaScript),
+    with an `href` attribute.
+  - text: An element that can you can type in, such as text inputs.
+  - clickable: Some clickable element not falling into another category.
+  - clickable-special: Like “clickable,” but uses a different technique to
+    simulate a click on the element. If “clickable” doesn’t work, try this one.
+  - scrollable: A scrollable element.
+
+- tab:
+
+  - link: Like “link” when `id` is “normal” (see above).
+
+- copy:
+
+  - link: Like “link” when `id` is “normal” (see above).
+  - text: Like “text” when `id` is “normal” (see above), except
+    contenteditable elements.
+  - contenteditable: Elements with “contenteditable” turned on.
+
+- focus:
+
+  - focusable: Any focusable element not falling into another category.
+  - scrollable: Like “scrollable” when `id` is “normal” (see above).
+
+The function must return an object with just like the `info` parameter (with
+`type` and `semantic`).
+
+
 ## Stability
 
 The public API is currently **experimental** and therefore **unstable.** Things
-might break with new VimFx versions.
+might break with new VimFx versions. However, no breaking changes are planned,
+and will be avoided if feasible.
 
-As soon as VimFx 1.0.0 is released backwards compatibility will be a priority
-and won’t be broken until VimFx 2.0.0.
+As soon as VimFx 1.0.0 (which does not seem to be too far away) is released
+backwards compatibility will be a priority and won’t be broken until VimFx
+2.0.0.
 
-[option overrides]: #vimfxaddOptionOverridesrules
+[option overrides]: #vimfxaddoptionoverridesrules
 [categories]: #vimfxgetcategories
 [`vimfx.modes`]: #vimfxmodes
 [onInput]: #oninput
@@ -560,8 +677,10 @@ and won’t be broken until VimFx 2.0.0.
 [autofocus prevention]: options.md#prevent-autofocus
 [`activatable_element_keys`]: options.md#activatable_element_keys
 [`adjustable_element_keys`]: options.md#adjustable_element_keys
+[`notifications_enabled`]: options.md#notifications_enabled
 
 [button]: button.md
+[the `f` commands]: commands.md#the-f-commands-1
 [special keys]: shortcuts.md#special-keys
 [styling]: styling.md
 
@@ -573,7 +692,6 @@ and won’t be broken until VimFx 2.0.0.
 
 [`Window`]: https://developer.mozilla.org/en-US/docs/Web/API/Window
 [`Browser`]: https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser
-[`Notification`]: https://developer.mozilla.org/en-US/docs/Web/API/Notification
 [`window.location`]: https://developer.mozilla.org/en-US/docs/Web/API/Location
 [`URL`]: https://developer.mozilla.org/en-US/docs/Web/API/URL
 [TabSelect]: https://developer.mozilla.org/en-US/docs/Web/Events/TabSelect

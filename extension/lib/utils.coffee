@@ -26,8 +26,6 @@ HTMLButtonElement   = Ci.nsIDOMHTMLButtonElement
 HTMLInputElement    = Ci.nsIDOMHTMLInputElement
 HTMLTextAreaElement = Ci.nsIDOMHTMLTextAreaElement
 HTMLSelectElement   = Ci.nsIDOMHTMLSelectElement
-HTMLFrameElement    = Ci.nsIDOMHTMLFrameElement
-HTMLIFrameElement   = Ci.nsIDOMHTMLIFrameElement
 XULDocument         = Ci.nsIDOMXULDocument
 XULButtonElement    = Ci.nsIDOMXULButtonElement
 XULControlElement   = Ci.nsIDOMXULControlElement
@@ -71,6 +69,7 @@ isProperLink = (element) ->
          (element instanceof HTMLAnchorElement or
           element.ownerDocument instanceof XULDocument) and
          not element.href.endsWith('#') and
+         not element.href.endsWith('#?') and
          not element.href.startsWith('javascript:')
 
 isTextInputElement = (element) ->
@@ -78,36 +77,38 @@ isTextInputElement = (element) ->
            'text', 'search', 'tel', 'url', 'email', 'password', 'number'
          ]) or
          element instanceof HTMLTextAreaElement or
+         element instanceof XULTextBoxElement
+
+isTypingElement = (element) ->
+  return isTextInputElement(element) or
          # `<select>` elements can also receive text input: You may type the
          # text of an item to select it.
          element instanceof HTMLSelectElement or
-         element instanceof XULMenuListElement or
-         element instanceof XULTextBoxElement
+         element instanceof XULMenuListElement
 
 
 
 # Active/focused element helpers
 
 getActiveElement = (window) ->
-  { activeElement } = window.document
-  if activeElement instanceof HTMLFrameElement or
-     activeElement instanceof HTMLIFrameElement
+  {activeElement} = window.document
+  # If the active element is a frame, recurse into it. The easiest way to detect
+  # a frame that works both in browser UI and in web page content is to check
+  # for the presence of `.contentWindow`. However, in non-multi-process
+  # `<browser>` (sometimes `<xul:browser>`) elements have a `.contentWindow`
+  # pointing to the web page content `window`, which we don’t want to recurse
+  # into. `.localName` is `.nodeName` without `xul:` (if it exists). This seems
+  # to be the only way to detect such elements.
+  if activeElement.localName != 'browser' and activeElement.contentWindow
     return getActiveElement(activeElement.contentWindow)
   else
     return activeElement
 
-blurActiveElement = (window, extraAllowedElements = null) ->
-  # Only blur focusable elements, in order to interfere with the browser as
-  # little as possible.
-  activeElement = getActiveElement(window)
-  if activeElement and
-     (activeElement.tabIndex > -1 or extraAllowedElements?.has(activeElement))
-    activeElement.blur()
+blurActiveElement = (window) ->
+  return unless activeElement = getActiveElement(window)
+  activeElement.blur()
 
 blurActiveBrowserElement = (vim) ->
-  # - Some browser UI elements, such as the web console, are not marked as
-  #   focusable, so we can’t check if the element is focusable as in
-  #   `blurActiveElement`.
   # - Blurring in the next tick allows to pass `<escape>` to the location bar to
   #   reset it, for example.
   # - Focusing the current browser afterwards allows to pass `<escape>` as well
@@ -115,7 +116,7 @@ blurActiveBrowserElement = (vim) ->
   #   focus events on `document` and `window` in the current page. Many pages
   #   re-focus some text input on those events, making it impossible to blur
   #   those! Therefore we tell the frame script to suppress those events.
-  { window } = vim
+  {window} = vim
   activeElement = getActiveElement(window)
   vim._send('browserRefocus')
   nextTick(window, ->
@@ -124,39 +125,24 @@ blurActiveBrowserElement = (vim) ->
   )
 
 # Focus an element and tell Firefox that the focus happened because of a user
-# keypress (not just because some random programmatic focus).
+# action (not just because some random programmatic focus). `.FLAG_BYKEY` might
+# look more appropriate, but it unconditionally selects all text, which
+# `.FLAG_BYMOUSE` does not.
 focusElement = (element, options = {}) ->
   focusManager = Cc['@mozilla.org/focus-manager;1']
     .getService(Ci.nsIFocusManager)
-  focusManager.setFocus(element, focusManager.FLAG_BYKEY)
+  focusManager.setFocus(element, options.flag ? 'FLAG_BYMOUSE')
   element.select?() if options.select
 
-moveFocus = (direction) ->
-  focusManager = Cc['@mozilla.org/focus-manager;1']
-    .getService(Ci.nsIFocusManager)
-  directionFlag =
-    if direction == -1
-      focusManager.MOVEFOCUS_BACKWARD
-    else
-      focusManager.MOVEFOCUS_FORWARD
-  focusManager.moveFocus(
-    null, # Use current window.
-    null, # Move relative to the currently focused element.
-    directionFlag,
-    focusManager.FLAG_BYKEY
-  )
-
-getFocusType = (event) ->
-  target = event.originalTarget
-  return switch
-    when isTextInputElement(target) or isContentEditable(target)
-      'editable'
-    when isActivatable(target)
-      'activatable'
-    when isAdjustable(target)
-      'adjustable'
-    else
-      null
+getFocusType = (element) -> switch
+  when isTypingElement(element) or isContentEditable(element)
+    'editable'
+  when isActivatable(element)
+    'activatable'
+  when isAdjustable(element)
+    'adjustable'
+  else
+    null
 
 
 
@@ -174,6 +160,17 @@ listenOnce = (element, eventName, listener, useCapture = true) ->
     element.removeEventListener(eventName, fn, useCapture)
   listen(element, eventName, fn, useCapture)
 
+onRemoved = (window, element, fn) ->
+  mutationObserver = new window.MutationObserver((changes) ->
+    for change in changes then for removedElement in change.removedNodes
+      if removedElement == element
+        mutationObserver.disconnect()
+        fn()
+        return
+  )
+  mutationObserver.observe(element.parentNode, {childList: true})
+  module.onShutdown(mutationObserver.disconnect.bind(mutationObserver))
+
 suppressEvent = (event) ->
   event.preventDefault()
   event.stopPropagation()
@@ -182,7 +179,7 @@ suppressEvent = (event) ->
 # elements.)
 eventSequence = ['mouseover', 'mousedown', 'mouseup', 'click', 'command']
 simulateClick = (element) ->
-  window = element.ownerDocument.defaultView
+  window = element.ownerGlobal
   for type in eventSequence
     mouseEvent = new window.MouseEvent(type, {
       # Let the event bubble in order to trigger delegated event listeners.
@@ -201,18 +198,53 @@ simulateClick = (element) ->
 area = (element) ->
   return element.clientWidth * element.clientHeight
 
-createBox = (document, className, parent = null, text = null) ->
+containsDeep = (parent, element) ->
+  parentWindow  = parent.ownerGlobal
+  elementWindow = element.ownerGlobal
+
+  while elementWindow != parentWindow and elementWindow.top != elementWindow
+    element = elementWindow.frameElement
+    elementWindow = element.ownerGlobal
+
+  return parent.contains(element)
+
+createBox = (document, className = '', parent = null, text = null) ->
   box = document.createElement('box')
-  box.className = className
+  box.className = "#{className} vimfx-box"
   box.textContent = text if text?
   parent.appendChild(box) if parent?
   return box
 
+injectTemporaryPopup = (document, contents) ->
+  popup = document.createElement('menupopup')
+  popup.appendChild(contents)
+  document.getElementById('mainPopupSet').appendChild(popup)
+  listenOnce(popup, 'popuphidden', popup.remove.bind(popup))
+  return popup
+
 insertText = (input, value) ->
-  { selectionStart, selectionEnd } = input
+  {selectionStart, selectionEnd} = input
   input.value =
     input.value[0...selectionStart] + value + input.value[selectionEnd..]
   input.selectionStart = input.selectionEnd = selectionStart + value.length
+
+querySelectorAllDeep = (window, selector) ->
+  elements = Array.from(window.document.querySelectorAll(selector))
+  for frame in window.frames
+    elements.push(querySelectorAllDeep(frame, selector)...)
+  return elements
+
+scroll = (element, args) ->
+  {method, type, directions, amounts, properties, adjustment, smooth} = args
+  options = {}
+  for direction, index in directions
+    amount = amounts[index]
+    options[direction] = -Math.sign(amount) * adjustment + switch type
+      when 'lines' then amount
+      when 'pages' then amount * element[properties[index]]
+      when 'other' then Math.min(amount, element[properties[index]])
+  options.behavior = 'smooth' if smooth
+  element[method](options)
 
 setAttributes = (element, attributes) ->
   for attribute, value of attributes
@@ -224,7 +256,7 @@ setAttributes = (element, attributes) ->
 # Language helpers
 
 class Counter
-  constructor: ({ start: @value = 0, @step = 1 }) ->
+  constructor: ({start: @value = 0, @step = 1}) ->
   tick: -> @value += @step
 
 class EventEmitter
@@ -239,16 +271,13 @@ class EventEmitter
       listener(data)
     return
 
-has = Function::call.bind(Object::hasOwnProperty)
+has = (obj, prop) -> Object::hasOwnProperty.call(obj, prop)
 
 nextTick = (window, fn) -> window.setTimeout(fn, 0)
 
 regexEscape = (s) -> s.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
 
-removeDuplicates = (array) ->
-  # coffeelint: disable=no_backticks
-  return `[...new Set(array)]`
-  # coffeelint: enable=no_backticks
+removeDuplicates = (array) -> Array.from(new Set(array))
 
 # Remove duplicate characters from string (case insensitive).
 removeDuplicateCharacters = (str) ->
@@ -264,7 +293,7 @@ formatError = (error) ->
     .filter((line) -> line.includes('.xpi!'))
     .map((line) -> '  ' + line.replace(/(?:\/<)*@.+\.xpi!/g, '@'))
     .join('\n')
-  return "#{ error }\n#{ stack }"
+  return "#{error}\n#{stack}"
 
 getCurrentLocation = ->
   window = getCurrentWindow()
@@ -278,7 +307,7 @@ getCurrentWindow = ->
 loadCss = (name) ->
   sss = Cc['@mozilla.org/content/style-sheet-service;1']
     .getService(Ci.nsIStyleSheetService)
-  uri = Services.io.newURI("chrome://vimfx/skin/#{ name }.css", null, null)
+  uri = Services.io.newURI("chrome://vimfx/skin/#{name}.css", null, null)
   method = sss.AUTHOR_SHEET
   unless sss.sheetRegistered(uri, method)
     sss.loadAndRegisterSheet(uri, method)
@@ -293,17 +322,20 @@ observe = (topic, observer) ->
     Services.obs.removeObserver(observer, topic, false)
   )
 
+openPopup = (popup) ->
+  window = popup.ownerGlobal
+  # Show the popup so it gets a height and width.
+  popup.openPopupAtScreen(0, 0)
+  # Center the popup inside the window.
+  popup.moveTo(
+    window.screenX + window.outerWidth  / 2 - popup.clientWidth  / 2,
+    window.screenY + window.outerHeight / 2 - popup.clientHeight / 2
+  )
+
 openTab = (window, url, options) ->
-  { gBrowser } = window
+  {gBrowser} = window
   window.TreeStyleTabService?.readyToOpenChildTab(gBrowser.selectedTab)
   gBrowser.loadOneTab(url, options)
-
-# Executes `fn` and measures how much time it took.
-timeIt = (fn, name) ->
-  console.time(name)
-  result = fn()
-  console.timeEnd(name)
-  return result
 
 writeToClipboard = (text) ->
   clipboardHelper = Cc['@mozilla.org/widget/clipboardhelper;1']
@@ -318,22 +350,27 @@ module.exports = {
   isContentEditable
   isProperLink
   isTextInputElement
+  isTypingElement
 
   getActiveElement
   blurActiveElement
   blurActiveBrowserElement
   focusElement
-  moveFocus
   getFocusType
 
   listen
   listenOnce
+  onRemoved
   suppressEvent
   simulateClick
 
   area
+  containsDeep
   createBox
+  injectTemporaryPopup
   insertText
+  querySelectorAllDeep
+  scroll
   setAttributes
 
   Counter
@@ -349,7 +386,7 @@ module.exports = {
   getCurrentWindow
   loadCss
   observe
+  openPopup
   openTab
-  timeIt
   writeToClipboard
 }

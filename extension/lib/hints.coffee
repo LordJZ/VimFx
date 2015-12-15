@@ -21,9 +21,9 @@
 # This file contains functions for getting markable elements, and related data,
 # as well as for creating and inserting markers for markable elements.
 
-huffman    = require('n-ary-huffman')
-{ Marker } = require('./marker')
-utils      = require('./utils')
+huffman  = require('n-ary-huffman')
+{Marker} = require('./marker')
+utils    = require('./utils')
 
 CONTAINER_ID = 'VimFxMarkersContainer'
 
@@ -70,6 +70,7 @@ injectHints = (window, wrappers, viewport, options) ->
       marker.markerElement.style.zIndex = zIndex++
       # Add `z-index` space for all the children of the marker.
       zIndex += marker.wrapper.numChildren if marker.wrapper.numChildren?
+    return
 
   # The `markers` passed to this function have been sorted by `setZIndexes` in
   # advance, so we can skip sorting in the `huffman.createTree` function.
@@ -106,9 +107,20 @@ injectHints = (window, wrappers, viewport, options) ->
   removeHints(window) # Better safe than sorry.
   container = window.document.createElement('box')
   container.id = CONTAINER_ID
-  window.gBrowser.mCurrentBrowser.parentNode.appendChild(container)
 
-  zoom = window.ZoomManager.getZoomForBrowser(window.gBrowser.selectedBrowser)
+  zoom = 1
+
+  if options.ui
+    container.classList.add('ui')
+    window.document.getElementById('browser-panel').appendChild(container)
+  else
+    window.gBrowser.mCurrentBrowser.parentNode.appendChild(container)
+    # If “full zoom” is not used, it means that “Zoom text only” is enabled.
+    # If so, that “zoom” does not need to be taken into account.
+    if window.ZoomManager.useFullZoom
+      zoom =
+        window.ZoomManager.getZoomForBrowser(window.gBrowser.selectedBrowser)
+
   for marker in markers
     container.appendChild(marker.markerElement)
     # Must be done after the hints have been inserted into the DOM (see
@@ -123,7 +135,7 @@ getMarkableElementsAndViewport = (window, filter) ->
     clientWidth, clientHeight # Viewport size excluding scrollbars, usually.
     scrollWidth, scrollHeight
   } = window.document.documentElement
-  { innerWidth, innerHeight } = window # Viewport size including scrollbars.
+  {innerWidth, innerHeight} = window # Viewport size including scrollbars.
   # We don’t want markers to cover the scrollbars, so we should use
   # `clientWidth` and `clientHeight`. However, when there are no scrollbars
   # those might be too small. Then we use `innerWidth` and `innerHeight`.
@@ -150,19 +162,25 @@ getMarkableElementsAndViewport = (window, filter) ->
 # actually what other methods like using XPath or CSS selectors would need to do
 # anyway behind the scenes.
 getMarkableElements = (window, viewport, wrappers, filter, parents = []) ->
-  { document } = window
+  {document} = window
 
-  localGetElementShape = getElementShape.bind(null, window, viewport, parents)
-  for element in getElements(document, viewport) when element instanceof Element
-    continue unless wrapper = filter(element, localGetElementShape)
+  for element in getAllElements(document) when element instanceof Element
+    # `getRects` is fast and filters out most elements, so run it first of all.
+    rects = getRects(element, viewport)
+    continue unless rects.length > 0
+    continue unless wrapper = filter(
+      element, (elementArg) ->
+        return getElementShape(window, viewport, parents, elementArg,
+                               if elementArg == element then rects else null)
+    )
     wrappers.push(wrapper)
 
-  for frame in window.frames
+  for frame in window.frames when frame.frameElement
     rect = frame.frameElement.getBoundingClientRect() # Frames only have one.
     continue unless isInsideViewport(rect, viewport)
 
     # Calculate the visible part of the frame, according to the parent.
-    { clientWidth, clientHeight } = frame.document.documentElement
+    {clientWidth, clientHeight} = frame.document.documentElement
     frameViewport =
       left:   Math.max(viewport.left - rect.left, 0)
       top:    Math.max(viewport.top  - rect.top,  0)
@@ -181,44 +199,42 @@ getMarkableElements = (window, viewport, wrappers, filter, parents = []) ->
         parseFloat(computedStyle.getPropertyValue('padding-top'))
 
     getMarkableElements(frame, frameViewport, wrappers, filter,
-                        parents.concat({ window, offset }))
+                        parents.concat({window, offset}))
 
   return
 
-# Returns a suitable set of elements in `document` that could possibly get
-# markers.
-getElements = (document, viewport) ->
-  # In XUL documents we have to resort to get every single element in the entire
-  # document, because there are lots of complicated “anonymous” elements, which
-  # `windowUtils.nodesFromRect()` does not catch.
-  if document instanceof XULDocument
-    elements = []
-    getAllRegular = (element) ->
-      for child in element.getElementsByTagName('*')
-        elements.push(child)
-        getAllAnonymous(child)
-      return
-    getAllAnonymous = (element) ->
-      for child in document.getAnonymousNodes(element) or []
-        continue unless child instanceof Element
-        elements.push(child)
-        getAllRegular(child)
-      return
-    getAllRegular(document.documentElement)
-    return elements
-  # In other documents we can use a super-fast Firefox API to get all elements
-  # in the viewport.
-  else
-    windowUtils = document.defaultView
-      .QueryInterface(Ci.nsIInterfaceRequestor)
-      .getInterface(Ci.nsIDOMWindowUtils)
-    return windowUtils.nodesFromRect(
-      viewport.left, viewport.top, # Rect coordinates, relative to the viewport.
-      # Distances to expand in all directions: top, right, bottom, left.
-      0, viewport.right, viewport.bottom, 0,
-      true, # Unsure what this does. Toggling it seems to make no difference.
-      true  # Ensure that the list of matching elements is fully up to date.
-    )
+getAllElements = (document) ->
+  unless document instanceof XULDocument
+    return document.getElementsByTagName('*')
+
+  # Use a `Set` since this algorithm may find the same element more than once.
+  # Ideally we should find a way to find all elements without duplicates.
+  elements = new Set()
+  getAllRegular = (element) ->
+    # The first time `zF` is run `.getElementsByTagName('*')` may oddly include
+    # `undefined` in its result! Filter those out.
+    for child in element.getElementsByTagName('*') when child
+      elements.add(child)
+      getAllAnonymous(child)
+    return
+  getAllAnonymous = (element) ->
+    for child in document.getAnonymousNodes(element) or []
+      continue unless child instanceof Element
+      elements.add(child)
+      getAllRegular(child)
+    return
+  getAllRegular(document.documentElement)
+  return Array.from(elements)
+
+getRects = (element, viewport) ->
+  # `element.getClientRects()` returns a list of rectangles, usually just one,
+  # which is identical to the one returned by `element.getBoundingClientRect()`.
+  # However, if `element` is inline and line-wrapped, then it returns one
+  # rectangle for each line, since each line may be of different length, for
+  # example. That allows us to properly add hints to line-wrapped links.
+  return Array.filter(
+    element.getClientRects(), (rect) -> isInsideViewport(viewport, rect)
+  )
 
 # Returns the “shape” of `element`:
 #
@@ -230,19 +246,11 @@ getElements = (document, viewport) ->
 #
 # Returns `null` if `element` is outside `viewport` or entirely covered by other
 # elements.
-getElementShape = (window, viewport, parents, element) ->
-  # `element.getClientRects()` returns a list of rectangles, usually just one,
-  # which is identical to the one returned by `element.getBoundingClientRect()`.
-  # However, if `element` is inline and line-wrapped, then it returns one
-  # rectangle for each line, since each line may be of different length, for
-  # example. That allows us to properly add hints to line-wrapped links.
-  rects = element.getClientRects()
+getElementShape = (window, viewport, parents, element, rects = null) ->
+  rects ?= getRects(element, viewport)
   totalArea = 0
   visibleRects = []
-  # The `isInsideViewport` check is not needed in HTML documents, but in XUL
-  # documents (see `getElements()`). However, there seems to be no performance
-  # gain in not running the check in HTML documents, so let’s keep it simple.
-  for rect in rects when isInsideViewport(rect, viewport)
+  for rect in rects
     visibleRect = adjustRectToViewport(rect, viewport)
     continue if visibleRect.area == 0
     totalArea += visibleRect.area
@@ -250,7 +258,7 @@ getElementShape = (window, viewport, parents, element) ->
 
   if visibleRects.length == 0
     if rects.length == 1 and totalArea == 0
-      [ rect ] = rects
+      [rect] = rects
       if rect.width > 0 or rect.height > 0
         # If we get here, it means that everything inside `element` is floated
         # and/or absolutely positioned (and that `element` hasn’t been made to
@@ -327,10 +335,8 @@ getFirstNonCoveredPoint = (window, viewport, element, elementRect, parents) ->
     # bullet proof: Combinations of CSS can cause this check to fail, even
     # though `element` isn’t covered. We don’t try to temporarily reset such CSS
     # because of performance. Instead we rely on that some of the attempts below
-    # will work.
-    if element.contains(elementAtPoint) or # Note that `a.contains(a) == true`!
-       (window.document instanceof XULDocument and
-        getClosestNonAnonymousParent(element) == elementAtPoint)
+    # will work. Note that `a.contains(a) == true`!
+    if normalize(element).contains(elementAtPoint)
       found = true
       # If we’re currently in a frame, there might be something on top of the
       # frame that covers `element`. Therefore we ensure that the frame really
@@ -342,7 +348,7 @@ getFirstNonCoveredPoint = (window, viewport, element, elementRect, parents) ->
         elementAtPoint = parent.window.document.elementFromPoint(
           offset.left + x + dx, offset.top + y + dy
         )
-        unless elementAtPoint == currentWindow.frameElement
+        unless frameAtPoint(currentWindow.frameElement, elementAtPoint)
           found = false
           break
         currentWindow = parent.window
@@ -376,17 +382,29 @@ getFirstNonCoveredPoint = (window, viewport, element, elementRect, parents) ->
   #
   # It is safer to try points at least one pixel into the element from the
   # edges, hence the `+1`.
-  { left, top, bottom, height } = elementRect
+  {left, top, bottom, height} = elementRect
   nonCoveredPoint = tryPoint(left, +1, Math.floor(top + height / 2), 0, 1)
 
   return nonCoveredPoint
 
-# In XUL documents there are “anonymous” elements, whose node names start with
-# `xul:` or `html:`. These are never returned by `document.elementFromPoint` but
-# their closest non-anonymous parents are.
-getClosestNonAnonymousParent = (element) ->
-  element = element.parentNode while element.prefix?
-  return element
+# In XUL documents there are “anonymous” elements. These are never returned by
+# `document.elementFromPoint` but their closest non-anonymous parents are.
+normalize = (element) ->
+  return element.ownerDocument.getBindingParent(element) or element
+
+# Returns whether `frameElement` corresponds to `elementAtPoint`. This is only
+# complicated for the dev tools’ frame. `.elementAtPoint()` returns
+# `<tabbrowser#content>` instead of the `<iframe>`. The dev tools might be in
+# another tab and thus invisible, but `<tabbrowser#content>` is the same and
+# visible in _all_ tabs, so we have to check that the frame really belongs to
+# the current tab.
+frameAtPoint = (frameElement, elementAtPoint) ->
+  frame = normalize(frameElement)
+  return false unless elementAtPoint == frame
+  return true  unless frame.nodeName == 'tabbrowser' and frame.id == 'content'
+  {gBrowser} = frameElement.ownerGlobal.top
+  tabpanel = gBrowser.getNotificationBox(gBrowser.selectedBrowser)
+  return tabpanel.contains(frameElement)
 
 module.exports = {
   removeHints
