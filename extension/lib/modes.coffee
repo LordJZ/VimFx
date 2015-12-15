@@ -29,6 +29,7 @@ hints                      = require('./hints')
 translate                  = require('./l10n')
 {rotateOverlappingMarkers} = require('./marker')
 utils                      = require('./utils')
+prefs                      = require('./prefs')
 
 # Helper to create modes in a DRY way.
 mode = (modeName, obj, commands = null) ->
@@ -46,6 +47,17 @@ mode = (modeName, obj, commands = null) ->
   exports[modeName] = obj
 
 
+disables = do ->
+  map = {}
+
+  # convert from { 'google.com': ['j', 'k'] }
+  # to { 'j': { 'google.com': 1 } }
+  pref = JSON.parse(prefs.get('per_site_disables'))
+  for host of pref
+    keys = pref[host]
+    for i in [0...keys.length]
+      (map[keys[i]] ?= {})[host] = true
+  return map
 
 mode('normal', {
   onEnter: ({vim, storage}, options = {}) ->
@@ -65,6 +77,7 @@ mode('normal', {
 
     autoInsertMode = (match.focus != null)
     if match.type == 'none' or
+       disables[keyStr]?[vim.window.gBrowser.currentURI.host] or
        (autoInsertMode and not match.specialKeys['<force>'])
       match.discard()
       if storage.returnTo
